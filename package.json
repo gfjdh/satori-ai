@@ -1,0 +1,38 @@
+{
+  "name": "satori-ai",
+  "version": "0.1.0",
+  "description": "AI桌宠 - 基于多模态Agent的智能桌面宠物",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "predev": "npm install && npm run build",
+    "dev": "tsx src/index.ts",
+    "prestart": "npm install && npm run build",
+    "start": "node dist/index.js",
+    "dev:webui": "cd webui && npm run dev",
+    "dev:all": "npm run dev & npm run dev:webui",
+    "dev:full": "npm run build & npm run build:watch & npm run dev",
+    "test": "tsx test/agent-loop-test.ts"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.4.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.18.2",
+    "fuse.js": "^7.3.0",
+    "node-cron": "^3.0.3",
+    "string-similarity": "^4.0.4",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.9",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.11.24",
+    "@types/node-cron": "^3.0.11",
+    "@types/string-similarity": "^4.0.2",
+    "@types/uuid": "^9.0.8",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.3.3"
+  }
+}

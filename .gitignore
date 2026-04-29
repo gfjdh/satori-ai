@@ -1,0 +1,53 @@
+# 不忽略 .gitignore 本身
+!.gitignore
+
+# 忽略特定文件夹
+live-2d/AI记录室/*
+live-2d/build/
+live-2d/fake_neuro_audio/
+live-2d/node/
+live-2d/.claude/
+live-2d/Voice_Model_Factory
+song-library/
+full-hub/7z
+full-hub/asr-hub
+full-hub/bert-hub
+full-hub/logs
+full-hub/model
+full-hub/rag-hub
+full-hub/tts-hub
+character-cards/*/TTS
+
+# 忽略所有 node_modules（无论在哪）
+**/node_modules/
+
+# 忽略构建输出
+dist/
+**/__pycache__/
+**/build/
+**/.pytest_cache/
+**/venv/
+**/output/
+
+# 忽略数据目录
+data/
+
+# 忽略可执行文件
+*.exe
+*.zip
+*.log
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.onnx
+
+
+# 忽略环境配置
+.env
+.env.local
+.env.*.local
+
+# 忽略无意义文件
+runtime.log
+full-hub/
+.DS_Store
