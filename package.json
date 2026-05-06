@@ -13,7 +13,10 @@
     "dev:webui": "cd webui && npm run dev",
     "dev:all": "npm run dev & npm run dev:webui",
     "dev:full": "npm run build & npm run build:watch & npm run dev",
-    "test": "tsx test/agent-loop-test.ts"
+    "test": "tsx test/agent-loop-test.ts",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
     "better-sqlite3": "^9.4.3",

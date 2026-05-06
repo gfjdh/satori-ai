@@ -1,4 +1,6 @@
 import express, { Request, Response } from 'express';
+import path from 'path';
+import fs from 'fs';
 import { analysisAgent } from './agent/analyzer.js';
 import { stateManager } from './state/manager.js';
 import { memoryManager } from './memory/manager.js';
@@ -17,6 +19,17 @@ const PORT = process.env.PORT || 3000;
 
 // 中间件
 app.use(express.json());
+
+// 静态文件 - 桌宠widget页面
+app.use('/live2d', express.static(path.join(process.cwd(), 'live2d-widget')));
+
+// 静态文件 - 角色卡目录（供Live2D模型加载）
+const characterCardsPath = path.join(process.cwd(), 'character-cards');
+console.log('[Static] character-cards path:', characterCardsPath);
+app.use('/character-cards', express.static(characterCardsPath, {
+  dotfiles: 'allow',
+  maxAge: '1h'
+}));
 
 // CORS（开发用）
 app.use((req, res, next) => {
@@ -322,6 +335,49 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'agent', content: `Chat API Error: ${error}`, createdAt: new Date() });
     sendSSE('error', { message: String(error) });
     res.end();
+  }
+});
+
+// 获取当前角色的Live2D配置
+app.get('/api/character/live2d-config', (req: Request, res: Response) => {
+  try {
+    const character = loadDefaultCharacter();
+    const characterCardsDir = path.join(process.cwd(), 'character-cards');
+    const live2dDir = path.join(characterCardsDir, character.id, 'live2d');
+
+    // 检查live2d目录是否存在
+    if (!fs.existsSync(live2dDir)) {
+      res.status(404).json({ error: `角色卡 "${character.name}" 中未配置 Live2D 模型。请检查角色卡目录是否存在 live2d 文件夹。` });
+      return;
+    }
+
+    // 查找model文件
+    const modelFiles = fs.readdirSync(live2dDir).filter(f => f.endsWith('.model.json') || f.endsWith('.model3.json'));
+
+    if (modelFiles.length === 0) {
+      res.status(404).json({ error: `角色卡 "${character.name}" 的 live2d 目录中未找到模型文件 (.model.json 或 .model3.json)。` });
+      return;
+    }
+
+    // 使用第一个找到的模型文件
+    const modelFile = modelFiles[0];
+    const modelPath = `character-cards/${character.id}/live2d/${modelFile}`;
+
+    // 构建相对URL供前端使用
+    const modelUrl = `/${modelPath}`;
+    const live2dUrl = `/live2d`;
+
+    res.json({
+      characterId: character.id,
+      characterName: character.name,
+      modelPath: modelPath,
+      modelUrl: modelUrl,
+      live2dUrl: live2dUrl,
+      modelFile: modelFile,
+      live2dDir: live2dDir
+    });
+  } catch (error) {
+    res.status(500).json({ error: `获取Live2D配置失败: ${String(error)}` });
   }
 });
 
