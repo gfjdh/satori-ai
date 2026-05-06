@@ -28,6 +28,7 @@ dist/
 **/.pytest_cache/
 **/venv/
 **/output/
+**/out/
 
 # 忽略数据目录
 data/
