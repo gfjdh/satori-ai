@@ -132,7 +132,7 @@ class ModelInteractionController {
         return { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight };
     }
 
-    setupInitialModelProperties(scaleMultiplier = 2.3) {
+    setupInitialModelProperties(scaleMultiplier = 2.3, offsetX = 0, offsetY = 0) {
         if (!this.model || !this.app) return;
 
         // 根据窗口大小计算初始缩放
@@ -141,8 +141,8 @@ class ModelInteractionController {
         this.model.scale.set(Math.min(scaleX, scaleY));
 
         // 默认位置 - 窗口中央偏下
-        this.model.x = window.innerWidth / 2 - this.model.width / 2;
-        this.model.y = window.innerHeight * 0.6;
+        this.model.x = window.innerWidth / 2 - this.model.width / 2 + offsetX;
+        this.model.y = window.innerHeight * 0.6 + offsetY;
 
         this.updateInteractionArea();
     }

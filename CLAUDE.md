@@ -138,4 +138,8 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ---
 
+- 动态加载当前角色卡对应的Live2D模型等配置，不允许使用默认硬编码。
+- 遵从let it crash原则，不允许使用缺省值来规避错误，任何配置错误都必须在界面上有明显提示，指导用户修正。
+- 对齐后端已有的API设计，确保前后端协作顺畅。
+
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.

@@ -367,6 +367,11 @@ app.get('/api/character/live2d-config', (req: Request, res: Response) => {
     const modelUrl = `/${modelPath}`;
     const live2dUrl = `/live2d`;
 
+    // 读取模型偏移配置
+    const live2dConfig = (character as any).live2d || {};
+    const modelOffsetX = live2dConfig.modelOffsetX || 0;
+    const modelOffsetY = live2dConfig.modelOffsetY || 0;
+
     res.json({
       characterId: character.id,
       characterName: character.name,
@@ -374,7 +379,9 @@ app.get('/api/character/live2d-config', (req: Request, res: Response) => {
       modelUrl: modelUrl,
       live2dUrl: live2dUrl,
       modelFile: modelFile,
-      live2dDir: live2dDir
+      live2dDir: live2dDir,
+      modelOffsetX: modelOffsetX,
+      modelOffsetY: modelOffsetY
     });
   } catch (error) {
     res.status(500).json({ error: `获取Live2D配置失败: ${String(error)}` });

@@ -56,7 +56,11 @@ async function initializeModel() {
         // 4. 初始化交互控制器
         const controller = new ModelInteractionController();
         controller.init(model, app);
-        controller.setupInitialModelProperties(live2dConfig.scale || 2.3);
+        controller.setupInitialModelProperties(
+            live2dConfig.scale || 2.3,
+            live2dConfig.modelOffsetX || 0,
+            live2dConfig.modelOffsetY || 0
+        );
 
         // 5. 保存配置供其他地方使用
         window.live2dController = controller;
