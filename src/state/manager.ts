@@ -2,7 +2,6 @@ import { stateDb } from '../db/database.js';
 import { AffinityState, EmotionState } from '../types/index.js';
 import type { StageDefinition } from '../character/loader.js';
 
-const CURRENT_CHARACTER_ID = process.env.CURRENT_CHARACTER_ID || '';
 const DEFAULT_EMOTION_REGRESSION_RATE = 0.05;
 
 class StateManager {
@@ -13,8 +12,8 @@ class StateManager {
   private customAffinityStages: Record<string, StageDefinition[]> | null = null;
   private customEmotionStages: Record<string, StageDefinition[]> | null = null;
 
-  constructor(characterId: string = CURRENT_CHARACTER_ID) {
-    this.characterId = characterId;
+  constructor(characterId?: string) {
+    this.characterId = characterId ?? (process.env.CURRENT_CHARACTER_ID as string);
     this.load();
   }
 

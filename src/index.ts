@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express, { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
@@ -10,9 +13,6 @@ import { dialogueDb } from './db/database.js';
 import { loadDefaultCharacter } from './character/loader.js';
 import { SSEMessage } from './types/index.js';
 import cron from 'node-cron';
-import dotenv from 'dotenv';
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
