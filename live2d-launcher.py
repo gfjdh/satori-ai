@@ -6,11 +6,11 @@ Satori Live2D 桌宠启动器
 
 import sys
 import os
-from PySide6.QtWidgets import QApplication, QMainWindow, QLabel
+from PySide6.QtWidgets import QApplication, QMainWindow, QLabel, QMenu
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEngineSettings
-from PySide6.QtCore import QUrl, Qt, QTimer
-from PySide6.QtGui import QColor, QPainter, QRegion
+from PySide6.QtCore import QUrl, Qt, QTimer, QEvent
+from PySide6.QtGui import QColor, QPainter, QRegion, QAction
 
 
 class Live2DViewer(QWebEngineView):
@@ -49,8 +49,7 @@ class Live2DWindow(QMainWindow):
         # 无边框、置顶、背景透明
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.SubWindow
+            Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
@@ -58,6 +57,12 @@ class Live2DWindow(QMainWindow):
         # 创建 WebView
         self.web_view = Live2DViewer(self)
         self.setCentralWidget(self.web_view)
+
+        # 禁用 WebView 原生右键菜单
+        self.web_view.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+
+        # 安装事件过滤器，捕获 WebView 的右键事件
+        self.web_view.installEventFilter(self)
 
         # 配置 WebEngine
         settings = self.web_view.settings()
@@ -69,6 +74,26 @@ class Live2DWindow(QMainWindow):
 
         print(f'桌宠加载中: {url}')
         self.web_view.loadFinished.connect(self.on_load_finished)
+
+    def eventFilter(self, obj, event):
+        """拦截子组件的右键事件"""
+        if event.type() == QEvent.Type.ContextMenu and obj is self.web_view:
+            self.show_context_menu(event.globalPos())
+            return True
+        return super().eventFilter(obj, event)
+
+    def show_context_menu(self, global_pos):
+        """显示右键菜单"""
+        menu = QMenu(self)
+
+        menu.addAction('打开管理页面', self.open_admin_page)
+        menu.addAction('互动', self.handle_interaction)
+        menu.addAction('变装', self.handle_change_costume)
+        menu.addAction('隐藏', self.hide_window)
+        menu.addAction('设置互动频率', self.open_settings)
+        menu.addAction('退出', self.close_app)
+
+        menu.exec(global_pos)
 
     def on_load_finished(self, ok):
         if ok:
@@ -86,6 +111,25 @@ class Live2DWindow(QMainWindow):
             delta = event.globalPosition().toPoint() - self._start_pos
             self.move(self.pos() + delta)
             self._start_pos = event.globalPosition().toPoint()
+
+    def open_admin_page(self):
+        import webbrowser
+        webbrowser.open('http://localhost:5173')
+
+    def handle_interaction(self):
+        print('互动功能待实现')
+
+    def handle_change_costume(self):
+        print('变装功能待实现')
+
+    def hide_window(self):
+        self.hide()
+
+    def open_settings(self):
+        print('设置互动频率待实现')
+
+    def close_app(self):
+        QApplication.quit()
 
 
 def main():

@@ -19,47 +19,69 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```
 satori-ai/
-├── skills/                    # Skill扩展目录（空目录，等待填充）
-├── character-cards/           # 角色卡目录
-│   └── fake-neuro/           # 示例角色（含Live2D模型和动作文件）
-│       ├── *.moc3           # Live2D模型文件
-│       ├── *.model3.json   # 模型配置
-│       ├── motions/         # 动作文件
-│       └── libs/            # Live2D相关库
-├── data/                      # 用户数据目录（运行时创建）
-│   ├── database.sqlite       # SQLite数据库
-│   ├── user_profile.json    # 用户画像
-│   └── workspace/           # 桌宠工作区
+├── src/                      # TypeScript后端源码
+│   ├── agent/               # Agent模块（analyzer分析、polisher润色）
+│   ├── api/                 # LLM API封装
+│   ├── character/           # 角色卡加载
+│   ├── db/                  # SQLite数据库
+│   ├── memory/              # 记忆管理
+│   ├── skills/              # 内置Skill（search、image-analysis）
+│   ├── state/               # 状态管理（好感度/情绪）
+│   ├── tts/                 # TTS客户端
+│   ├── user/                # 用户画像
+│   └── index.ts             # 入口
+├── webui/                    # Vue3前端
+│   └── src/
+│       ├── views/            # 页面组件
+│       ├── router/           # 路由配置
+│       └── api/              # API调用封装
+├── character-cards/          # 角色卡目录
+│   └── satori/              # 默认角色（古明地觉）
+│       ├── live2d/          # Live2D模型和动作
+│       ├── knowledge/       # 角色知识资料
+│       ├── TTS/             # 语音合成配置
+│       └── character.json   # 角色配置
+├── skills/                   # Skill扩展目录
+├── live2d-widget/            # 桌宠Live2D渲染组件
+├── data/                     # 运行时数据
+│   ├── database.sqlite     # SQLite数据库
+│   ├── user_profile.json   # 用户画像
+│   └── logs/                # 日志文件
 ├── .env                      # 配置文件（API密钥等）
-└── todo.md                   # 设计文档
+├── todo.md                   # 设计文档
+└── README.md                 # 项目说明
 ```
 
-## 核心架构要点
+## 核心架构要点 ✅
 
-**状态管理器**：中央协调器，维护好感度（多维）和情绪状态，协调Agent间通信。
+**状态管理器** (`src/state/manager.ts`)：中央协调器，维护多维好感度和情绪状态，协调Agent间通信。情绪随时间自动回归平静。
 
-**分析Agent**：多模态模型接入，核心职责是上下文管理和任务分解。LLM自行判断是否调用工具（screen_analysis、搜索等）。
+**分析Agent** (`src/agent/analyzer.ts`)：多模态模型接入，核心职责是上下文管理和任务分解。带Loop检索（最多6轮），LLM自行判断是否调用工具。
 
-**Skill系统**：Markdown格式的操作说明书，位于`skills/<skill-name>/SKILL.md`。启动时仅加载名称和描述，任务匹配时按需加载完整指令。
+**PolisherAgent** (`src/agent/polisher.ts`)：润色Agent，SSE流式输出text和action事件，控制对话风格和Live2D动作。
 
-**记忆系统**：SQLite存储，分级结构（年→季→月→周→日→话题→单轮对话）。用户画像存放在JSON文件中。
+**Skill系统** (`src/skills/engine.ts`)：Markdown格式操作说明书，位于`skills/<skill-name>/SKILL.md`。启动时仅加载名称和描述，任务匹配时按需加载完整指令。
 
-**好感度系统**：多维独立数值，各维度平行插入上下文提示词，不互相覆盖。
+**记忆系统** (`src/memory/manager.ts`)：SQLite存储，分级结构（年→季→月→周→日→话题七级）。LLM自动识别话题切换，用户画像存放在JSON文件中。
 
-**情绪状态**：多维独立数值，各维度平行插入上下文提示词，不互相覆盖，随时间向平静值回归。
+**好感度系统**：多维独立数值（信赖度、亲密度、占有欲），各维度平行插入上下文提示词，不互相覆盖。
+
+**情绪状态**：多维独立数值（悲-喜、愤怒-平静、焦虑-放松），各维度平行插入上下文提示词，不互相覆盖，随时间向平静值回归。
 
 ## WebUI路由
 
-| 路径 | 页面 |
-|------|------|
-| `/` | 欢迎页 |
-| `/characters` | 角色卡管理 |
-| `/memories` | 记忆管理 |
-| `/knowledge` | 资料库管理 |
-| `/settings` | 配置管理 |
-| `/plugins` | 插件管理 |
-| `/tasks` | 任务管理 |
-| `/status` | 状态面板 |
+| 路径 | 页面 | 状态 |
+|------|------|------|
+| `/` | 欢迎页 | ✅ 已实现 |
+| `/chat` | 对话测试页面 | ✅ 已实现 |
+| `/status` | 状态面板 | ✅ 已实现 |
+| `/database` | 数据库管理 | ✅ 已实现 |
+| `/characters` | 角色卡管理 | ❌ 未实现 |
+| `/memories` | 记忆管理 | ❌ 未实现 |
+| `/knowledge` | 资料库管理 | ❌ 未实现 |
+| `/settings` | 配置管理 | ❌ 未实现 |
+| `/plugins` | 插件管理 | ❌ 未实现 |
+| `/tasks` | 任务管理 | ❌ 未实现 |
 
 ## 数据库表
 
@@ -73,6 +95,17 @@ satori-ai/
 ## 环境配置
 
 敏感配置使用`.env`文件管理，通过WebUI配置界面操作，不直接编辑文件。
+
+## 当前进度
+
+| 模块 | 状态 |
+|------|------|
+| 核心后端（Agent/状态/记忆/Skill） | ✅ 完成 |
+| 数据库 | ✅ 完成 |
+| WebUI基础（首页/状态/对话/数据库） | ✅ 完成 |
+| WebUI扩展（角色卡/记忆/资料库/插件/任务/设置） | ❌ 待完成 |
+| 桌宠窗口 | 🔄 进行中 |
+| 角色卡导入导出 | ❌ 待完成 |
 
 # 行为准则
 
