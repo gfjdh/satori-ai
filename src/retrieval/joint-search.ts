@@ -9,7 +9,7 @@ import { memoryDb, knowledgeDb } from '../db/database.js';
 import { searchCharacterKnowledge } from '../character/knowledge.js';
 import { logDb } from '../db/database.js';
 import { v4 as uuidv4 } from 'uuid';
-import jieba from 'node-jieba';
+import jieba from 'nodejieba';
 
 export interface JointSearchResult {
   id: string;

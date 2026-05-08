@@ -325,7 +325,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
   try {
     // 处理对话
     const response = await unifiedAgent.process(message, (msg) => {
-      sendSSE(msg.type, msg.data as string);
+      sendSSE(msg.type, msg.data as unknown as string);
     });
 
     // 发送完成信号

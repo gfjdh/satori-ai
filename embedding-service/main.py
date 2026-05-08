@@ -99,7 +99,7 @@ async def search(request: SearchRequest):
             score = float(np.dot(query_vec, item_vec))
             results.append(SearchResult(
                 id=item.id,
-                content=item.content[:200],
+                content=item.content,
                 score=score
             ))
 

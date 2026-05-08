@@ -120,10 +120,6 @@ export async function search(params: SearchParams): Promise<string> {
     const knowledgeResults = knowledgeDb.search(directKeywords.length > 0 ? directKeywords : searchKeywords);
 
     for (const entry of knowledgeResults) {
-      const matched = searchKeywords.filter((kw: string) =>
-        entry.keywords.some((k: string) => k.includes(kw) || kw.includes(k))
-      );
-
       results.push({
         source: 'knowledge',
         granularity: null,
@@ -131,7 +127,7 @@ export async function search(params: SearchParams): Promise<string> {
         content: entry.content,
         relevance: entry.relevance || 0,
         keywords_matched: {
-          direct: matched.filter(k => directKeywords.includes(k))
+          direct: []
         },
         period: null
       });
@@ -213,21 +209,20 @@ function buildResult(
   mem: Memory,
   allKeywords: string[]
 ): SearchResult {
-  const matchedDirect = allKeywords.filter(kw =>
-    mem.keywords.some(k => k.includes(kw) || kw.includes(k))
-  );
-
-  // 相关性：基于关键词匹配权重
+  // 相关性：基于内容匹配
   let relevance = 0;
   if (allKeywords.length > 0) {
-    relevance = matchedDirect.length / allKeywords.length;
+    const matchedCount = allKeywords.filter(kw =>
+      mem.content.includes(kw) || stringSimilarity.compareTwoStrings(kw, mem.content) > 0.3
+    ).length;
+    relevance = matchedCount / allKeywords.length;
   }
 
-  // 检查是否需要细化：关键词匹配但内容很概括
+  // 检查是否需要细化：内容很概括
   const contentSpecificity = mem.content.length;
-  const shouldRefine = contentSpecificity < 50 && matchedDirect.length > 0;
+  const shouldRefine = contentSpecificity < 50 && relevance > 0;
 
-  // 提取可能的细化关键词（从内容中识别但未在关键词中的词）
+  // 提取可能的细化关键词（从内容中识别）
   const refineKeywords = shouldRefine
     ? extractPotentialKeywords(mem.content, allKeywords)
     : undefined;
@@ -238,7 +233,7 @@ function buildResult(
     content: mem.content,
     relevance,
     keywords_matched: {
-      direct: matchedDirect
+      direct: []
     },
     period: {
       start: mem.periodStart.toISOString().split('T')[0],

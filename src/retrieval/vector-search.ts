@@ -1,6 +1,6 @@
 /**
  * 向量检索模块
- * 通过 Python embedding 服务进行向量检索（仅 memories、knowledge_base）
+ * 从数据库获取已存储的 embedding，在本地计算余弦相似度
  */
 
 import { embeddingManager } from '../embedding/manager.js';
@@ -16,7 +16,8 @@ export interface VectorSearchResult {
 }
 
 /**
- * 向量检索入口（通过 Python 服务）
+ * 向量检索入口
+ * 使用数据库中预存储的 embedding，本地计算余弦相似度
  */
 export async function vectorSearch(
   query: string,
@@ -24,54 +25,71 @@ export async function vectorSearch(
 ): Promise<VectorSearchResult[]> {
   const start = Date.now();
 
-  // 收集 memories 和 knowledge_base 的所有条目
-  const memories = memoryDb.getAll();
-  const knowledgeEntries = knowledgeDb.getAll();
+  // 收集有 embedding 的 memories 和 knowledge_base 条目
+  const memoriesWithEmbedding = memoryDb.getAllWithEmbedding();
+  const knowledgeWithEmbedding = knowledgeDb.getAllWithEmbedding();
 
-  // 构建检索项
-  const items: Array<{ id: string; content: string }> = [];
+  // 构建检索项（带 embedding）
+  const items: Array<{ id: string; content: string; embedding: number[]; source: 'memory' | 'knowledge' }> = [];
 
-  for (const m of memories) {
-    items.push({ id: m.id, content: m.content });
+  for (const m of memoriesWithEmbedding) {
+    if (m.embedding) {
+      items.push({
+        id: m.id,
+        content: m.content,
+        embedding: Array.from(new Float32Array(m.embedding)),
+        source: 'memory'
+      });
+    }
   }
 
-  for (const k of knowledgeEntries) {
-    items.push({ id: k.id, content: k.content });
+  for (const k of knowledgeWithEmbedding) {
+    if (k.embedding) {
+      items.push({
+        id: k.id,
+        content: k.content,
+        embedding: Array.from(new Float32Array(k.embedding)),
+        source: 'knowledge'
+      });
+    }
   }
 
   if (items.length === 0) {
+    logDb.insert({
+      id: uuidv4(),
+      level: 'debug',
+      category: 'retrieval',
+      content: `[VectorSearch] 无已存储 embedding 的条目，跳过向量检索`,
+      createdAt: new Date()
+    });
     return [];
   }
 
-  // 调用 Python embedding 服务进行向量检索
-  const results = await embeddingManager.search(query, items, topK);
+  // 调用 Python 服务编码查询向量
+  const queryEmbedding = await embeddingManager.encode(query);
 
-  // 转换结果，区分 source
-  const sourceMap = new Map<string, 'memory' | 'knowledge'>();
-  for (const m of memories) {
-    sourceMap.set(m.id, 'memory');
-  }
-  for (const k of knowledgeEntries) {
-    sourceMap.set(k.id, 'knowledge');
-  }
-
-  const vectorResults: VectorSearchResult[] = results.map(r => ({
-    id: r.id,
-    content: r.content,
-    source: sourceMap.get(r.id) || 'memory',
-    score: r.score
+  // 本地计算余弦相似度
+  const scored = items.map(item => ({
+    id: item.id,
+    content: item.content,
+    source: item.source,
+    score: embeddingManager.cosineSimilarity(queryEmbedding, item.embedding)
   }));
+
+  // 按相似度降序排列，取 topK
+  scored.sort((a, b) => b.score - a.score);
+  const results = scored.slice(0, topK);
 
   const latency = Date.now() - start;
   logDb.insert({
     id: uuidv4(),
     level: 'debug',
     category: 'retrieval',
-    content: `[VectorSearch] 查询: "${query.substring(0, 30)}...", 结果: ${vectorResults.length}, 耗时: ${latency}ms`,
+    content: `[VectorSearch] 查询: "${query.substring(0, 30)}...", 有embedding条目: ${items.length}, 结果: ${results.length}, 耗时: ${latency}ms`,
     createdAt: new Date()
   });
 
-  return vectorResults;
+  return results;
 }
 
 /**

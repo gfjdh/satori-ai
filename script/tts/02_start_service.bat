@@ -6,15 +6,12 @@ echo.
 
 set "TTS_ROOT=%~dp0..\..\tts-service"
 
-cd /d "%TTS_ROOT%"
-set "TTS_ROOT=%CD%"
-
 echo Starting TTS service (this may take a while for model loading)...
 echo - TTS API:  http://localhost:5030/api
 echo - Health:   http://localhost:5030/api/health
 echo.
 
-start "TTS Service" cmd /k "venv\Scripts\python.exe app.py"
+start "TTS Service" cmd /k "cd /d "%TTS_ROOT%" && venv\Scripts\python.exe app.py"
 
 echo.
 echo TTS service is starting in a new window...

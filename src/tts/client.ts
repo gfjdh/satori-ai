@@ -261,8 +261,10 @@ export async function synthesize(
     // 解码 base64 音频
     return Buffer.from(response.audio_base64!, 'base64');
   } catch (error: unknown) {
-    if ((error as { code?: string }).code === 'ECONNREFUSED') {
-      throw new Error(`TTS service is not running at ${TTS_SERVICE_HOST}:${TTS_SERVICE_PORT}`);
+    const err = error as { code?: string; message?: string; errno?: string };
+    const errMsg = err.message || err.code || err.errno || 'unknown';
+    if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {
+      throw new Error(`TTS service is not running at ${TTS_SERVICE_HOST}:${TTS_SERVICE_PORT} (${errMsg})`);
     }
     throw error;
   }
@@ -304,8 +306,10 @@ export async function synthesizeStream(
     // 解码 base64 音频
     return Buffer.from(response.audio_base64!, 'base64');
   } catch (error: unknown) {
-    if ((error as { code?: string }).code === 'ECONNREFUSED') {
-      throw new Error(`TTS service is not running at ${TTS_SERVICE_HOST}:${TTS_SERVICE_PORT}`);
+    const err = error as { code?: string; message?: string; errno?: string };
+    const errMsg = err.message || err.code || err.errno || 'unknown';
+    if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {
+      throw new Error(`TTS service is not running at ${TTS_SERVICE_HOST}:${TTS_SERVICE_PORT} (${errMsg})`);
     }
     throw error;
   }

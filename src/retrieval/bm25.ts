@@ -3,7 +3,7 @@
  * 对候选集使用 jieba 分词后进行 BM25 重排序
  */
 
-import jieba from 'node-jieba';
+import jieba from 'nodejieba';
 import StringSimilarity from 'string-similarity';
 import { logDb } from '../db/database.js';
 import { v4 as uuidv4 } from 'uuid';

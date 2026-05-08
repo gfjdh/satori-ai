@@ -32,7 +32,6 @@ db.exec(`
     id TEXT PRIMARY KEY,
     granularity TEXT NOT NULL CHECK(granularity IN ('year', 'season', 'month', 'week', 'day', 'topic')),
     content TEXT NOT NULL,
-    keywords TEXT NOT NULL,
     embedding BLOB,
     period_start TEXT NOT NULL,
     period_end TEXT NOT NULL,
@@ -66,7 +65,6 @@ db.exec(`
     id TEXT PRIMARY KEY,
     category TEXT NOT NULL,
     content TEXT NOT NULL,
-    keywords TEXT NOT NULL,
     embedding BLOB,
     source TEXT NOT NULL CHECK(source IN ('character_card', 'user')),
     created_at TEXT NOT NULL
@@ -159,14 +157,14 @@ export const dialogueDb = {
 export const memoryDb = {
   insert(memory: Memory): void {
     const stmt = db.prepare(`
-      INSERT INTO memories (id, granularity, content, keywords, period_start, period_end, created_at)
+      INSERT INTO memories (id, granularity, content, embedding, period_start, period_end, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       memory.id,
       memory.granularity,
       memory.content,
-      JSON.stringify(memory.keywords),
+      memory.embedding ?? null,
       memory.periodStart.toISOString(),
       memory.periodEnd.toISOString(),
       memory.createdAt.toISOString()
@@ -189,14 +187,11 @@ export const memoryDb = {
         const kw = keywords[i];
         // 关键词权重：第一个1.5，最后一个0.5，线性递减
         const weight = 1.5 - (i / (keywords.length - 1 || 1)) * (1.5 - 0.5);
-        // 关键词匹配（精确或模糊）
-        const kwMatch = mem.keywords.some(k => k.includes(kw) || kw.includes(k) ||
-          stringSimilarity.compareTwoStrings(kw, k) > 0.3);
         // 内容匹配（模糊）
         const contentMatch = stringSimilarity.compareTwoStrings(kw, mem.content) > 0.3 ||
           mem.content.includes(kw);
-        if (kwMatch || contentMatch) {
-          score += (kwMatch ? 0.7 : 0.3) * weight;
+        if (contentMatch) {
+          score += 0.3 * weight;
         }
       }
       return score / keywords.length; // 归一化
@@ -256,7 +251,6 @@ export const memoryDb = {
       id: row.id,
       granularity: row.granularity,
       content: row.content,
-      keywords: JSON.parse(row.keywords),
       periodStart: new Date(row.period_start),
       periodEnd: new Date(row.period_end),
       createdAt: new Date(row.created_at)
@@ -270,7 +264,6 @@ export const memoryDb = {
       id: row.id,
       granularity: row.granularity,
       content: row.content,
-      keywords: JSON.parse(row.keywords),
       embedding: row.embedding,
       periodStart: new Date(row.period_start),
       periodEnd: new Date(row.period_end),
@@ -285,7 +278,6 @@ export const memoryDb = {
       id: row.id,
       granularity: row.granularity,
       content: row.content,
-      keywords: JSON.parse(row.keywords),
       embedding: row.embedding ? Buffer.from(row.embedding) : null,
       periodStart: new Date(row.period_start),
       periodEnd: new Date(row.period_end),
@@ -414,14 +406,14 @@ export const stateDb = {
 export const knowledgeDb = {
   insert(entry: KnowledgeEntry): void {
     const stmt = db.prepare(`
-      INSERT INTO knowledge_base (id, category, content, keywords, source, created_at)
+      INSERT INTO knowledge_base (id, category, content, embedding, source, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       entry.id,
       entry.category,
       entry.content,
-      JSON.stringify(entry.keywords),
+      entry.embedding ?? null,
       entry.source,
       entry.createdAt.toISOString()
     );
@@ -439,14 +431,11 @@ export const knowledgeDb = {
     const scoreEntry = (entry: KnowledgeEntry): number => {
       let score = 0;
       for (const kw of keywords) {
-        // 关键词匹配（精确或模糊）
-        const kwMatch = entry.keywords.some(k => k.includes(kw) || kw.includes(k) ||
-          stringSimilarity.compareTwoStrings(kw, k) > 0.3);
         // 内容匹配（模糊）
         const contentMatch = stringSimilarity.compareTwoStrings(kw, entry.content) > 0.3 ||
           entry.content.includes(kw);
-        if (kwMatch || contentMatch) {
-          score += kwMatch ? 0.7 : 0.3; // 关键词匹配权重更高
+        if (contentMatch) {
+          score += 0.3;
         }
       }
       return score / keywords.length; // 归一化
@@ -470,7 +459,6 @@ export const knowledgeDb = {
       id: row.id,
       category: row.category,
       content: row.content,
-      keywords: JSON.parse(row.keywords),
       embedding: row.embedding,
       source: row.source,
       createdAt: new Date(row.created_at)
@@ -484,7 +472,6 @@ export const knowledgeDb = {
       id: row.id,
       category: row.category,
       content: row.content,
-      keywords: JSON.parse(row.keywords),
       embedding: row.embedding ? Buffer.from(row.embedding) : null,
       source: row.source,
       createdAt: new Date(row.created_at)
@@ -503,7 +490,7 @@ export const knowledgeDb = {
 
   batchImport(entries: Omit<KnowledgeEntry, 'id' | 'createdAt'>[]): number {
     const stmt = db.prepare(`
-      INSERT INTO knowledge_base (id, category, content, keywords, source, created_at)
+      INSERT INTO knowledge_base (id, category, content, embedding, source, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `);
 
@@ -517,7 +504,7 @@ export const knowledgeDb = {
           generateId(),
           entry.category,
           entry.content,
-          JSON.stringify(entry.keywords),
+          entry.embedding ?? null,
           entry.source,
           new Date().toISOString()
         );

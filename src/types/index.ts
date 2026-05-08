@@ -35,8 +35,8 @@ export interface Memory {
   id: string;
   granularity: 'year' | 'season' | 'month' | 'week' | 'day' | 'topic';
   content: string;
-  keywords: string[];
   relevance?: number; // 相关性得分
+  embedding?: Buffer | null;
   periodStart: Date;
   periodEnd: Date;
   createdAt: Date;
@@ -60,8 +60,8 @@ export interface KnowledgeEntry {
   id: string;
   category: string;
   content: string;
-  keywords: string[];
   relevance?: number; // 相关性得分
+  embedding?: Buffer | null;
   source: 'character_card' | 'user';
   createdAt: Date;
 }
@@ -93,11 +93,43 @@ export interface Skill extends SkillMeta {
 }
 
 // SSE事件类型
-export type SSEEventType = 'text' | 'action' | 'done' | 'error' | 'proactive' | 'voice' | 'subtitle' | 'audio' | 'subtitle_extra';
+export type SSEEventType =
+  | 'voice' | 'audio' | 'subtitle' | 'subtitle_append'
+  | 'deep_think_pending' | 'done' | 'error' | 'proactive';
+
+// SSEMessage data 类型
+export interface VoiceEventData {
+  text: string;
+  emotion: string;
+  action: string;
+  language: string;
+}
+
+export interface AudioEventData {
+  audio: string;  // base64
+}
+
+export interface SubtitleEventData {
+  text: string;
+}
+
+export interface DeepThinkPendingData {
+  value: boolean;
+}
+
+export interface ErrorEventData {
+  message: string;
+}
+
+export interface ProactiveEventData {
+  text: string;
+  source: string;
+  memoryId?: string;
+}
 
 export interface SSEMessage {
   type: SSEEventType;
-  data: string | Record<string, unknown>;
+  data: VoiceEventData | AudioEventData | SubtitleEventData | DeepThinkPendingData | ErrorEventData | ProactiveEventData | Record<string, unknown>;
 }
 
 // SSE事件载荷

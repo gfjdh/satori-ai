@@ -6,7 +6,7 @@
 import StringSimilarity from 'string-similarity';
 import { logDb } from '../db/database.js';
 import { v4 as uuidv4 } from 'uuid';
-import jieba from 'node-jieba';
+import jieba from 'nodejieba';
 
 export interface RetrievalItem {
   id: string;

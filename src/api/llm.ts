@@ -75,21 +75,21 @@ export async function callLLM(request: LLMRequest): Promise<LLMResponse> {
       usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
     };
 
-    // 提取消息内容用于日志（限制长度，避免数据库过大）
+    // 提取消息内容用于日志
     const messagesContent = request.messages.map(m => {
       const role = m.role === 'system' ? '【系统】' : m.role === 'user' ? '【用户】' : '【角色】';
       const content = typeof m.content === 'string' ? m.content : '[多模态内容]';
-      return `${role}: ${content.substring(0, 5000)}`;
+      return `${role}: ${content}`;
     }).join('\n');
 
     const responseContent = data.choices[0]?.message?.content || '';
 
-    // 记录详细日志（响应截断到4000字符，保证能看到完整的skill结果）
+    // 记录详细日志
     logDb.insert({
       id: logId,
       level: 'debug',
       category: 'api_call',
-      content: `[Request]\n${messagesContent}\n\n[Response]\n${responseContent.substring(0, 4000)}`,
+      content: `[Request]\n${messagesContent}\n\n[Response]\n${responseContent}`,
       createdAt: startTime
     });
 
@@ -128,9 +128,10 @@ export async function* callLLMStream(
 
   // 构建API路径
   let fullUrl: string;
-  if (config.baseURL.includes('/v1')) {
+  if (config.baseURL.endsWith('/v1') || config.baseURL.endsWith('/v3') || config.baseURL.includes('/v1/') || config.baseURL.includes('/v3/')) {
     fullUrl = `${config.baseURL}/chat/completions`;
   } else {
+    // 非 v1/v3 格式，baseURL 本身就是完整端点
     fullUrl = config.baseURL;
   }
 

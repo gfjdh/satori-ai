@@ -26,6 +26,7 @@
     "fuse.js": "^7.3.0",
     "node-cron": "^3.0.3",
     "node-jieba": "^0.0.3",
+    "nodejieba": "^3.5.8",
     "string-similarity": "^4.0.4",
     "uuid": "^9.0.1"
   },

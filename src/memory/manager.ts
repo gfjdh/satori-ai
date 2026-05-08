@@ -3,6 +3,7 @@ import { stateManager } from '../state/manager.js';
 import { callLLM, getLLMConfig } from '../api/llm.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Memory } from '../types/index.js';
+import { generateAndStoreEmbedding } from '../retrieval/vector-search.js';
 
 // 短期记忆（当前话题的对话总结）
 interface ShortTermMemory {
@@ -113,55 +114,24 @@ ${currentShortTermMemory ? `当前话题：${currentShortTermMemory.topic}\n已�
   async archiveCurrentTopic(): Promise<void> {
     if (!currentShortTermMemory) return;
 
-    // 生成关键词
-    const keywords = await this.generateKeywords(currentShortTermMemory.summary);
+    const memoryId = uuidv4();
 
     // 存入长期记忆
     const memory = {
-      id: uuidv4(),
+      id: memoryId,
       granularity: 'topic' as const,
       content: currentShortTermMemory.summary,
-      keywords: keywords,
       periodStart: currentShortTermMemory.startTime,
       periodEnd: currentShortTermMemory.lastUpdateTime,
       createdAt: new Date()
     };
 
     memoryDb.insert(memory);
-  }
 
-  // 生成记忆关键词
-  private async generateKeywords(content: string): Promise<string[]> {
-    const config = getLLMConfig();
-
-    const prompt = `
-# 你是一个关键词提取器，负责从给定的文本内容中提取出有助于未来检索召回的关键词列表。请根据以下要求提取关键词：
-# 关键词提取要求：{
-- 关键词的来源包括但不限于：内容中包含的信息，信息所属的领域，与内容相关的潜在主题，甚至是内容中隐含的情感或意图。
-- 关键词是用于未来进行检索召回的，因此要考虑检索时希望匹配到哪些词能够帮助找到这段内容。
-- 关键词可以是内容中直接出现的词，也可以是与内容相关但未直接出现的词（关联词）。
-- 关键词应该尽可能覆盖内容的核心信息和潜在关联，而不仅仅是表面词汇。
-- 关键词的数量应达到10-20个，但关键词与内容的关联程度应当降序排列，即优先输出关联更大更紧密的关键词。
-- 关键词之间用逗号分隔，不要使用其他连接词或格式。
-- 请只返回关键词列表，不要包含任何解释、引导语或其他内容。
-}
-# 现在从以下内容中提取关键词："
-${content}
-"
-`;
-
-    try {
-      const response = await callLLM({
-        model: config.model,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0
-      });
-
-      return response.content.split(/[,，]/).map(k => k.trim()).filter(k => k);
-    } catch (error) {
-      logDb.insert({ id: uuidv4(), level: 'error', category: 'agent', content: `Failed to generate keywords: ${error}`, createdAt: new Date() });
-      return [];
-    }
+    // 异步生成 embedding，不阻塞主进程
+    generateAndStoreEmbedding('memory', memoryId, currentShortTermMemory.summary).catch(err => {
+      logDb.insert({ id: uuidv4(), level: 'warn', category: 'embedding', content: `Failed to generate embedding for memory ${memoryId}: ${err}`, createdAt: new Date() });
+    });
   }
 
   // 获取某粒度的最新总结时间
@@ -265,21 +235,25 @@ ${memoryText}
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
 
-        // 生成关键词
-        const keywords = await this.generateKeywords(parsed.summary);
+        const memoryId = uuidv4();
 
         // 存入长期记忆
         const memory = {
-          id: uuidv4(),
+          id: memoryId,
           granularity,
           content: parsed.summary,
-          keywords,
           periodStart: startDate,
           periodEnd: endDate,
           createdAt: endDate
         };
 
         memoryDb.insert(memory);
+
+        // 异步生成 embedding，不阻塞主进程
+        generateAndStoreEmbedding('memory', memoryId, parsed.summary).catch(err => {
+          logDb.insert({ id: uuidv4(), level: 'warn', category: 'embedding', content: `Failed to generate embedding for summary ${memoryId}: ${err}`, createdAt: new Date() });
+        });
+
         logDb.insert({ id: uuidv4(), level: 'info', category: 'agent', content: `Created ${granularity} summary with ${relevantMemories.length} sub-memories`, createdAt: endDate });
       }
     } catch (error) {
@@ -358,24 +332,28 @@ ${dialogueText}
 
     const parsed = JSON.parse(jsonMatch[0]);
 
-    // 6. 生成关键词
-    const keywords = await this.generateKeywords(parsed.summary);
-
-    // 7. 存入memoryDb，granularity='topic'
+    // 6. 存入memoryDb，granularity='topic'
     const firstDialogue = unarchivedDialogues[0];
     const lastDialogue = unarchivedDialogues[unarchivedDialogues.length - 1];
 
+    const memoryId = uuidv4();
+
     const memory = {
-      id: uuidv4(),
+      id: memoryId,
       granularity: 'topic' as const,
       content: parsed.summary,
-      keywords,
       periodStart: firstDialogue.createdAt,
       periodEnd: lastDialogue.createdAt,
       createdAt: new Date()
     };
 
     memoryDb.insert(memory);
+
+    // 异步生成 embedding，不阻塞主进程
+    generateAndStoreEmbedding('memory', memoryId, parsed.summary).catch(err => {
+      logDb.insert({ id: uuidv4(), level: 'warn', category: 'embedding', content: `Failed to generate embedding for recovered memory ${memoryId}: ${err}`, createdAt: new Date() });
+    });
+
     logDb.insert({ id: uuidv4(), level: 'info', category: 'agent', content: `Recovered and summarized ${unarchivedDialogues.length} unarchived dialogues into topic: ${parsed.topic}`, createdAt: new Date() });
   }
 }
