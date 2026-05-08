@@ -8,9 +8,19 @@
 
 #### 核心后端 (Node.js + TypeScript) ✅
 - **数据库层** (`src/db/database.ts`) - SQLite 实现，六张表：dialogues、memories、tasks、system_state、knowledge_base、logs
+- **检索系统** ✅
+  - `src/embedding/manager.ts` - 嵌入向量生成与管理
+  - `src/retrieval/vector-search.ts` - 向量相似度搜索
+  - `src/retrieval/bm25.ts` - BM25关键词检索
+  - `src/retrieval/joint-search.ts` - 向量+关键词联合检索
+  - `src/retrieval/reranker.ts` - 结果重排序
 - **Agent 系统** ✅
-  - `src/agent/analyzer.ts` - 分析Agent，多模态模型接入，上下文管理，带Loop检索（最多6轮）
+  - `src/agent/unified-agent.ts` - 统一Agent，整合分析+润色
+  - `src/agent/analysis-loop.ts` - 分析Loop（最多6轮迭代）
   - `src/agent/polisher.ts` - 润色Agent，生成带动作表情的回复，SSE流式输出
+  - `src/agent/prompts.ts` - 提示词模板
+  - `src/agent/segment-utils.ts` - 文本分段工具
+  - `src/agent/dialogue-stats.ts` - 对话统计
 - **LLM API 层** (`src/api/llm.ts`) - 支持自定义BaseURL和Model，流式输出
 - **状态管理器** (`src/state/manager.ts`) - 多维好感度/情绪系统，角色卡动态配置，情绪自动回归
 - **记忆管理器** (`src/memory/manager.ts`) - 分级存储（年/季/月/周/日/话题七级），LLM自动话题识别，智能召回
@@ -51,7 +61,12 @@
 - 模型位置偏移可配置
 
 #### 启动脚本 ✅
-- `start.ps1` - 一键启动，支持指定角色和运行模式
+- `script/start.ps1` - 一键启动，支持指定角色和运行模式
+- `script/` - 分模块启动脚本（backend/embedding/live2d/tts/webui）
+
+#### 嵌入服务 (Python) ✅
+- `embedding-service/main.py` - 向量嵌入生成服务
+- 支持批量生成和搜索功能
 
 ### 待完成
 
@@ -179,11 +194,13 @@ cd webui && npm run dev
 ```
 satori-ai/
 ├── src/                    # TypeScript后端源码
-│   ├── agent/             # Agent模块（analyzer分析、polisher润色）
+│   ├── agent/             # Agent模块（unified-agent/analysis-loop/polisher）
 │   ├── api/               # LLM API封装
 │   ├── character/         # 角色卡加载
 │   ├── db/                # SQLite数据库
+│   ├── embedding/         # 嵌入向量管理
 │   ├── memory/            # 记忆管理
+│   ├── retrieval/         # 检索系统（vector/bm25/joint/reranker）
 │   ├── skills/            # Skill定义（search、image-analysis）
 │   ├── state/             # 状态管理（好感度/情绪）
 │   ├── tts/               # TTS客户端
@@ -201,8 +218,13 @@ satori-ai/
 │       ├── knowledge/     # 角色知识资料
 │       ├── TTS/           # 语音合成配置
 │       └── character.json # 角色配置
+├── embedding-service/      # Python嵌入服务
+│   └── main.py
 ├── live2d-widget/          # 桌宠Live2D渲染组件
 ├── tts-service/            # Python TTS服务
+├── script/                 # 分模块启动脚本
+│   ├── start.ps1           # 一键启动脚本
+│   └── readme.md          # 启动说明
 ├── data/                   # 运行时数据
 │   ├── database.sqlite    # SQLite数据库
 │   ├── user_profile.json  # 用户画像
