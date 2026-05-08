@@ -13,7 +13,8 @@ class StateManager {
   private customEmotionStages: Record<string, StageDefinition[]> | null = null;
 
   constructor(characterId?: string) {
-    this.characterId = characterId ?? (process.env.CURRENT_CHARACTER_ID as string);
+    // 如果未提供 characterId，尝试从环境变量读取，否则使用默认值 'satori'
+    this.characterId = characterId ?? (process.env.CURRENT_CHARACTER_ID as string) ?? 'satori';
     this.load();
   }
 

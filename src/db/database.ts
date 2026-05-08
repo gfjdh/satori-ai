@@ -33,6 +33,7 @@ db.exec(`
     granularity TEXT NOT NULL CHECK(granularity IN ('year', 'season', 'month', 'week', 'day', 'topic')),
     content TEXT NOT NULL,
     keywords TEXT NOT NULL,
+    embedding BLOB,
     period_start TEXT NOT NULL,
     period_end TEXT NOT NULL,
     created_at TEXT NOT NULL
@@ -66,6 +67,7 @@ db.exec(`
     category TEXT NOT NULL,
     content TEXT NOT NULL,
     keywords TEXT NOT NULL,
+    embedding BLOB,
     source TEXT NOT NULL CHECK(source IN ('character_card', 'user')),
     created_at TEXT NOT NULL
   );
@@ -74,7 +76,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS logs (
     id TEXT PRIMARY KEY,
     level TEXT NOT NULL CHECK(level IN ('info', 'warn', 'error', 'debug')),
-    category TEXT NOT NULL CHECK(category IN ('screen_analysis', 'api_call', 'heartbeat', 'task', 'agent', 'error', 'tts')),
+    category TEXT NOT NULL CHECK(category IN ('screen_analysis', 'api_call', 'heartbeat', 'task', 'agent', 'error', 'tts', 'retrieval', 'embedding')),
     content TEXT NOT NULL,
     created_at TEXT NOT NULL
   );
@@ -269,10 +271,31 @@ export const memoryDb = {
       granularity: row.granularity,
       content: row.content,
       keywords: JSON.parse(row.keywords),
+      embedding: row.embedding,
       periodStart: new Date(row.period_start),
       periodEnd: new Date(row.period_end),
       createdAt: new Date(row.created_at)
     }));
+  },
+
+  getAllWithEmbedding(): Array<Memory & { embedding: Buffer | null }> {
+    const stmt = db.prepare('SELECT * FROM memories WHERE embedding IS NOT NULL');
+    const rows = stmt.all() as any[];
+    return rows.map(row => ({
+      id: row.id,
+      granularity: row.granularity,
+      content: row.content,
+      keywords: JSON.parse(row.keywords),
+      embedding: row.embedding ? Buffer.from(row.embedding) : null,
+      periodStart: new Date(row.period_start),
+      periodEnd: new Date(row.period_end),
+      createdAt: new Date(row.created_at)
+    }));
+  },
+
+  updateEmbedding(id: string, embedding: Buffer): void {
+    const stmt = db.prepare('UPDATE memories SET embedding = ? WHERE id = ?');
+    stmt.run(embedding, id);
   }
 };
 
@@ -448,9 +471,29 @@ export const knowledgeDb = {
       category: row.category,
       content: row.content,
       keywords: JSON.parse(row.keywords),
+      embedding: row.embedding,
       source: row.source,
       createdAt: new Date(row.created_at)
     }));
+  },
+
+  getAllWithEmbedding(): Array<KnowledgeEntry & { embedding: Buffer | null }> {
+    const stmt = db.prepare('SELECT * FROM knowledge_base WHERE embedding IS NOT NULL');
+    const rows = stmt.all() as any[];
+    return rows.map(row => ({
+      id: row.id,
+      category: row.category,
+      content: row.content,
+      keywords: JSON.parse(row.keywords),
+      embedding: row.embedding ? Buffer.from(row.embedding) : null,
+      source: row.source,
+      createdAt: new Date(row.created_at)
+    }));
+  },
+
+  updateEmbedding(id: string, embedding: Buffer): void {
+    const stmt = db.prepare('UPDATE knowledge_base SET embedding = ? WHERE id = ?');
+    stmt.run(embedding, id);
   },
 
   delete(id: string): void {

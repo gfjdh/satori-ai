@@ -4,7 +4,8 @@ dotenv.config();
 import express, { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
-import { analysisAgent } from './agent/analyzer.js';
+import { unifiedAgent } from './agent/unified-agent.js';
+import { embeddingManager } from './embedding/manager.js';
 import { stateManager } from './state/manager.js';
 import { memoryManager } from './memory/manager.js';
 import { skillEngine } from './skills/engine.js';
@@ -323,7 +324,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
 
   try {
     // 处理对话
-    const response = await analysisAgent.process(message, (msg) => {
+    const response = await unifiedAgent.process(message, (msg) => {
       sendSSE(msg.type, msg.data as string);
     });
 
@@ -521,7 +522,7 @@ app.listen(PORT, async () => {
 
   // 加载角色卡
   const character = loadDefaultCharacter();
-  analysisAgent.setCharacter(character);
+  unifiedAgent.setCharacter(character);
 
   // 配置状态管理器使用角色卡的阶段定义
   stateManager.configureDimensions({
@@ -531,8 +532,15 @@ app.listen(PORT, async () => {
   });
 
   // 初始化Skill引擎
-  const skills = skillEngine.getAllSkillMetas();
-  logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Loaded ${skills.length} skills`, createdAt: new Date() });
+  const skillMetas = skillEngine.getAllSkillMetas();
+  logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Loaded ${skillMetas.length} skills`, createdAt: new Date() });
+
+  // 预加载 Embedding 模型（后台进行，不阻塞启动）
+  embeddingManager.preload().then(() => {
+    logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'embedding', content: 'Embedding model ready', createdAt: new Date() });
+  }).catch(err => {
+    logDb.insert({ id: crypto.randomUUID(), level: 'warn', category: 'embedding', content: `Embedding model preload failed: ${err}`, createdAt: new Date() });
+  });
 
   // 恢复未归档的对话并汇总为topic
   await memoryManager.recoverAndSummarizeUnarchived();
