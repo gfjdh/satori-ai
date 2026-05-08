@@ -93,6 +93,7 @@ ${currentShortTermMemory ? `当前话题：${currentShortTermMemory.topic}\n已�
 当前话题内容是："${currentShortTermMemory.summary}"
 用户新消息是："${userMessage}"
 
+话题的标准是：含有具体意义的事物或事件，简单寒暄或互动并不算是话题，所以不算做切换话题。
 请判断用户有没有转换到新话题，如果是在继续当前话题，请回复"否"，如果切换了话题，请回复"是"。
 只回复"是"或"否"。`;
 
@@ -102,7 +103,6 @@ ${currentShortTermMemory ? `当前话题：${currentShortTermMemory.topic}\n已�
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.1
       });
-      logDb.insert({ id: uuidv4(), level: 'debug', category: 'agent', content: `[Topic Switch Check]\nPrompt:\n${prompt}\nLLM Response:\n${response.content}`, createdAt: new Date() });
       return response.content.includes('是');
     } catch (error) {
       logDb.insert({ id: uuidv4(), level: 'error', category: 'agent', content: `Failed to check topic switch: ${error}`, createdAt: new Date() });

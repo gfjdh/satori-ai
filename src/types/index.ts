@@ -70,7 +70,7 @@ export interface KnowledgeEntry {
 export interface LogEntry {
   id: string;
   level: 'info' | 'warn' | 'error' | 'debug';
-  category: 'screen_analysis' | 'api_call' | 'heartbeat' | 'task' | 'agent' | 'error' | 'tts' | 'retrieval' | 'embedding';
+  category: string;
   content: string;
   createdAt: Date;
 }

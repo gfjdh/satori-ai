@@ -50,8 +50,8 @@ ${ctx.availableEmotions.join(', ')}
 可用动作：wave, nod, shake_head, happy, sad, angry, surprise, think, idle
 
 ## needDeepThink 判断
-- needDeepThink=true（仅在第一个对象内输出）：问题需要复杂推理、需要调用技能、需要较长回复、或需要按时间检索记忆等情况
-- needDeepThink=false（默认，不需要输出）：简单问候、直接回答、闲聊
+- needDeepThink=true（仅在第一个对象内输出，后续不需要输出）：问题需要复杂推理、需要调用技能、需要较长回复、或需要按时间检索记忆等情况
+- needDeepThink=false（默认，为false时不需要输出）：简单问候、直接回答、闲聊
 
 现在开始输出，**立即输出第一行 JSON**，不要有任何前缀。`;
 }

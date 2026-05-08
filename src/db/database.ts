@@ -74,7 +74,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS logs (
     id TEXT PRIMARY KEY,
     level TEXT NOT NULL CHECK(level IN ('info', 'warn', 'error', 'debug')),
-    category TEXT NOT NULL CHECK(category IN ('screen_analysis', 'api_call', 'heartbeat', 'task', 'agent', 'error', 'tts', 'retrieval', 'embedding')),
+    category TEXT NOT NULL,
     content TEXT NOT NULL,
     created_at TEXT NOT NULL
   );

@@ -77,14 +77,6 @@ class UnifiedAgent {
       temperature: 0.7
     });
 
-    logDb.insert({
-      id: uuidv4(),
-      level: 'debug',
-      category: 'agent',
-      content: `[LLM Request] firstTurnPrompt:\n${firstTurnPrompt}`,
-      createdAt: new Date()
-    });
-
     let allVoiceTexts: string[] = [];
     let needDeepThinkFlag = false;
     let buffer = '';
@@ -166,13 +158,6 @@ class UnifiedAgent {
     if (speechLanguage !== subtitleLanguage && fullVoiceText) {
       try {
         const translatePrompt = buildSubtitleTranslatePrompt(fullVoiceText, subtitleLanguage);
-        logDb.insert({
-          id: uuidv4(),
-          level: 'debug',
-          category: 'agent',
-          content: `[LLM Request] subtitleTranslatePrompt:\n${translatePrompt}`,
-          createdAt: new Date()
-        });
         const translateResponse = callLLMStream({
           model: config.model,
           messages: [{ role: 'user', content: translatePrompt }],
@@ -232,13 +217,6 @@ class UnifiedAgent {
       // 翻译追加内容的字幕
       if (speechLanguage !== subtitleLanguage) {
         const additionalText = analysisResult.segments.map(s => s.voice).join('');
-        logDb.insert({
-          id: uuidv4(),
-          level: 'debug',
-          category: 'agent',
-          content: `[LLM Request] subtitleTranslatePrompt (append):\n${buildSubtitleTranslatePrompt(additionalText, subtitleLanguage)}`,
-          createdAt: new Date()
-        });
         try {
           const translatePrompt = buildSubtitleTranslatePrompt(additionalText, subtitleLanguage);
           const translateResponse = callLLMStream({
@@ -312,10 +290,6 @@ class UnifiedAgent {
 用户说：${userInput}
 角色说：${aiResponse}
 
-当前状态：
-${stateManager.getEmotionDescription()}
-${stateManager.getAffinityDescription()}
-
 请以JSON格式返回状态变化（数值范围 -5 到 +5）：
 {
   "emotion": {
@@ -324,15 +298,8 @@ ${stateManager.getAffinityDescription()}
   "affinity": {
     ${affinityDimensionDesc}
   }
-}`;
-
-        logDb.insert({
-          id: crypto.randomUUID(),
-          level: 'debug',
-          category: 'agent',
-          content: `[LLM Request] stateUpdatePrompt:\n${updatePrompt}`,
-          createdAt: new Date()
-        });
+}
+仅给出json即可，不需要任何补充内容`;
 
         const response = callLLMStream({
           model: config.model,

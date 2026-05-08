@@ -23,8 +23,8 @@ export function getLLMConfig(): LLMConfig {
   };
 }
 
-// 调用LLM API
-export async function callLLM(request: LLMRequest): Promise<LLMResponse> {
+// 调用LLM API（统一日志记录）
+export async function callLLM(request: LLMRequest, logRequest = true): Promise<LLMResponse> {
   const config = getLLMConfig();
 
   if (!config.apiKey) {
@@ -35,13 +35,10 @@ export async function callLLM(request: LLMRequest): Promise<LLMResponse> {
   const startTime = new Date();
 
   // 构建API路径
-  // 情况1: baseURL 包含 /v1 或 /v3 → 加 /chat/completions
-  // 情况2: baseURL 是其他格式（如 /anthropic）→ 直接使用 baseURL（无额外路径）
   let fullUrl: string;
   if (config.baseURL.endsWith('/v1') || config.baseURL.endsWith('/v3') || config.baseURL.includes('/v1/')) {
     fullUrl = `${config.baseURL}/chat/completions`;
   } else {
-    // 非 v1/v3 格式，baseURL 本身就是完整端点
     fullUrl = config.baseURL;
   }
 
@@ -75,23 +72,24 @@ export async function callLLM(request: LLMRequest): Promise<LLMResponse> {
       usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
     };
 
-    // 提取消息内容用于日志
-    const messagesContent = request.messages.map(m => {
-      const role = m.role === 'system' ? '【系统】' : m.role === 'user' ? '【用户】' : '【角色】';
-      const content = typeof m.content === 'string' ? m.content : '[多模态内容]';
-      return `${role}: ${content}`;
-    }).join('\n');
-
     const responseContent = data.choices[0]?.message?.content || '';
 
-    // 记录详细日志
-    logDb.insert({
-      id: logId,
-      level: 'debug',
-      category: 'api_call',
-      content: `[Request]\n${messagesContent}\n\n[Response]\n${responseContent}`,
-      createdAt: startTime
-    });
+    // 统一日志记录：包含请求上下文和完整回复
+    if (logRequest) {
+      const messagesContent = request.messages.map(m => {
+        const role = m.role === 'system' ? '【系统】' : m.role === 'user' ? '【用户】' : '【角色】';
+        const content = typeof m.content === 'string' ? m.content : '[多模态内容]';
+        return `${role}: ${content}`;
+      }).join('\n');
+
+      logDb.insert({
+        id: logId,
+        level: 'debug',
+        category: 'llm_api',
+        content: `[Request]\n${messagesContent}\n\n[Response]\n${responseContent}`,
+        createdAt: startTime
+      });
+    }
 
     return {
       content: responseContent,
@@ -103,22 +101,22 @@ export async function callLLM(request: LLMRequest): Promise<LLMResponse> {
     };
 
   } catch (error) {
-    // 记录错误日志
     logDb.insert({
       id: uuidv4(),
       level: 'error',
-      category: 'api_call',
+      category: 'llm_api',
       content: `LLM call failed: ${error instanceof Error ? error.message : String(error)}`,
       createdAt: startTime
     });
-
     throw error;
   }
 }
 
-// 流式调用LLM
+// 流式调用LLM（统一日志记录）
 export async function* callLLMStream(
-  request: LLMRequest
+  request: LLMRequest,
+  logRequest = true,
+  purpose = ''
 ): AsyncGenerator<string, void, unknown> {
   const config = getLLMConfig();
 
@@ -126,12 +124,14 @@ export async function* callLLMStream(
     throw new Error('LLM API key not configured');
   }
 
+  const logId = uuidv4();
+  const startTime = new Date();
+
   // 构建API路径
   let fullUrl: string;
   if (config.baseURL.endsWith('/v1') || config.baseURL.endsWith('/v3') || config.baseURL.includes('/v1/') || config.baseURL.includes('/v3/')) {
     fullUrl = `${config.baseURL}/chat/completions`;
   } else {
-    // 非 v1/v3 格式，baseURL 本身就是完整端点
     fullUrl = config.baseURL;
   }
 
@@ -164,6 +164,7 @@ export async function* callLLMStream(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let fullContent = '';
 
   try {
     while (true) {
@@ -178,12 +179,13 @@ export async function* callLLMStream(
       for (const line of lines) {
         if (line.startsWith('data: ')) {
           const data = line.substring(6);
-          if (data === '[DONE]') return;
+          if (data === '[DONE]') break;
 
           try {
             const parsed = JSON.parse(data);
             const content = parsed.choices?.[0]?.delta?.content;
             if (content) {
+              fullContent += content;
               yield content;
             }
           } catch {
@@ -194,5 +196,22 @@ export async function* callLLMStream(
     }
   } finally {
     reader.releaseLock();
+  }
+
+  // 流结束后写入统一日志
+  if (logRequest) {
+    const messagesContent = request.messages.map(m => {
+      const role = m.role === 'system' ? '【系统】' : m.role === 'user' ? '【用户】' : '【角色】';
+      const content = typeof m.content === 'string' ? m.content : '[多模态内容]';
+      return `${role}: ${content}`;
+    }).join('\n');
+
+    logDb.insert({
+      id: logId,
+      level: 'debug',
+      category: 'llm_api',
+      content: `[Request${purpose ? ` (${purpose})` : ''}]\n${messagesContent}\n\n[Response]\n${fullContent}`,
+      createdAt: startTime
+    });
   }
 }
