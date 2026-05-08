@@ -111,6 +111,7 @@ export interface AudioEventData {
 
 export interface SubtitleEventData {
   text: string;
+  sentenceIndex: number;
 }
 
 export interface DeepThinkPendingData {

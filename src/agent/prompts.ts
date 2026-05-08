@@ -14,9 +14,15 @@ export interface PromptContext {
   availableEmotions: string[];
   skillList?: string;
   speechLanguage: string;
+  subtitleLanguage: string;
 }
 
 export function buildFirstTurnPrompt(ctx: PromptContext): string {
+  const needsSubtitle = ctx.speechLanguage !== ctx.subtitleLanguage;
+  const subtitleField = needsSubtitle
+    ? `,"subtitle":"翻译文本（${ctx.subtitleLanguage}）"`
+    : '';
+
   return `## 角色
 你是角色扮演对话引擎，负责生成角色的回复。
 
@@ -41,7 +47,7 @@ ${ctx.userInput}
 
 **输出格式**：JSON Lines，每行一个 JSON 对象，字段如下：
 
-{"emotion":"情感标签","action":"动作类型","voice":"文本（${ctx.speechLanguage}，约15字）","needDeepThink":true/false}
+{"emotion":"情感标签","action":"动作类型","voice":"文本（${ctx.speechLanguage}，约15字）${subtitleField},"needDeepThink":true/false}
 
 ## 可用情感标签
 ${ctx.availableEmotions.join(', ')}
@@ -49,22 +55,22 @@ ${ctx.availableEmotions.join(', ')}
 ## 可用动作标签
 可用动作：wave, nod, shake_head, happy, sad, angry, surprise, think, idle
 
-## needDeepThink 判断
+## 其中 needDeepThink 是可选项，具体判断依据：
 - needDeepThink=true（仅在第一个对象内输出，后续不需要输出）：问题需要复杂推理、需要调用技能、需要较长回复、或需要按时间检索记忆等情况
 - needDeepThink=false（默认，为false时不需要输出）：简单问候、直接回答、闲聊
+
+${needsSubtitle ? `## 字幕翻译
+当 speechLanguage 与 subtitleLanguage 不同时，每句话需要同时提供 subtitle 字段作为翻译。` : ''}
 
 现在开始输出，**立即输出第一行 JSON**，不要有任何前缀。`;
 }
 
-export function buildSubtitleTranslatePrompt(voiceText: string, subtitleLanguage: string): string {
-  return `将以下语音文本翻译成 ${subtitleLanguage}。
-
-${voiceText}
-
-直接输出翻译结果，不要解释。`;
-}
-
 export function buildAnalysisPrompt(ctx: PromptContext): string {
+  const needsSubtitle = ctx.speechLanguage !== ctx.subtitleLanguage;
+  const subtitleField = needsSubtitle
+    ? `,"subtitle":"翻译文本（${ctx.subtitleLanguage}）"`
+    : '';
+
   return `## 你的角色
 你是对话智能体信息检索模块的中枢控制器，负责分析用户问题并决定是否调用技能收集信息。
 
@@ -98,8 +104,11 @@ SKILL_CALL: skill_name
 
 ## 输出格式（不需要技能时）
 JSON Lines，每行一个 JSON 对象：
-{"emotion":"情感标签","action":"动作类型","voice":"文本（${ctx.speechLanguage}，约10字）"}
+{"emotion":"情感标签","action":"动作类型","voice":"文本（${ctx.speechLanguage}，约10字）${subtitleField}}
 
 ## 情感标签
-${ctx.availableEmotions.join(', ')}`;
+${ctx.availableEmotions.join(', ')}
+
+${needsSubtitle ? `## 字幕翻译
+当 speechLanguage 与 subtitleLanguage 不同时，每句话需要同时提供 subtitle 字段作为翻译。` : ''}`;
 }

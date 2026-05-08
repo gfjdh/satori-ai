@@ -14,7 +14,7 @@ import { synthesizeStream } from '../tts/client.js';
 import { getAvailableEmotions } from '../tts/client.js';
 import { loadDefaultCharacter, type CharacterConfig } from '../character/loader.js';
 
-import { buildFirstTurnPrompt, buildSubtitleTranslatePrompt } from './prompts.js';
+import { buildFirstTurnPrompt } from './prompts.js';
 import { parseSegment } from './segment-utils.js';
 import { runAnalysisLoop } from './analysis-loop.js';
 import { getDialogueStats, getRecentDialoguesText } from './dialogue-stats.js';
@@ -68,7 +68,8 @@ class UnifiedAgent {
       dialogueStats: getDialogueStats(),
       recentDialogues: recentText,
       availableEmotions,
-      speechLanguage
+      speechLanguage,
+      subtitleLanguage
     });
 
     const streamResponse = callLLMStream({
@@ -109,9 +110,18 @@ class UnifiedAgent {
             text: seg.voice,
             emotion: seg.emotion,
             action: seg.action,
-            language: speechLanguage
+            language: speechLanguage,
+            sentenceIndex: sentenceIndex
           }
         });
+
+        // 发送 subtitle 事件（仅当语言不同时且有subtitle内容）
+        if (seg.subtitle && speechLanguage !== subtitleLanguage) {
+          onSSE?.({
+            type: 'subtitle',
+            data: { text: seg.subtitle, sentenceIndex: sentenceIndex }
+          });
+        }
 
         // 立即 TTS 合成并发送 audio
         try {
@@ -143,45 +153,16 @@ class UnifiedAgent {
         }
         onSSE?.({
           type: 'voice',
-          data: { text: seg.voice, emotion: seg.emotion, action: seg.action, language: speechLanguage }
+          data: { text: seg.voice, emotion: seg.emotion, action: seg.action, language: speechLanguage, sentenceIndex: sentenceIndex }
         });
+        if (seg.subtitle && speechLanguage !== subtitleLanguage) {
+          onSSE?.({ type: 'subtitle', data: { text: seg.subtitle, sentenceIndex: sentenceIndex } });
+        }
         try {
           const audioBuffer = await synthesizeStream(seg.voice, this.character.id, seg.emotion);
           onSSE?.({ type: 'audio', data: { audio: audioBuffer.toString('base64'), sentenceIndex: sentenceIndex++ } });
         } catch {}
         allVoiceTexts.push(seg.voice);
-      }
-    }
-
-    // ========== 阶段3：字幕翻译 ==========
-    const fullVoiceText = allVoiceTexts.join('');
-    if (speechLanguage !== subtitleLanguage && fullVoiceText) {
-      try {
-        const translatePrompt = buildSubtitleTranslatePrompt(fullVoiceText, subtitleLanguage);
-        const translateResponse = callLLMStream({
-          model: config.model,
-          messages: [{ role: 'user', content: translatePrompt }],
-          temperature: 0
-        });
-
-        let subtitleText = '';
-        for await (const chunk of translateResponse) {
-          subtitleText += chunk;
-        }
-
-        // 去掉可能的 JSON 标记，只保留纯文本
-        subtitleText = subtitleText.replace(/^```[\s\S]*?```/gm, '').trim();
-
-        onSSE?.({ type: 'subtitle', data: { text: subtitleText } });
-      } catch (err) {
-        logDb.insert({
-          id: uuidv4(),
-          level: 'error',
-          category: 'agent',
-          content: `Subtitle translation failed: ${err}`,
-          createdAt: new Date()
-        });
-        throw err; // 出错抛异常
       }
     }
 
@@ -196,15 +177,20 @@ class UnifiedAgent {
         characterInfo,
         dialogueRequirements,
         availableEmotions,
-        speechLanguage
+        speechLanguage,
+        subtitleLanguage
       });
 
       // 发送分析结果的 segments
       for (const seg of analysisResult.segments) {
         onSSE?.({
           type: 'voice',
-          data: { text: seg.voice, emotion: seg.emotion, action: seg.action, language: speechLanguage }
+          data: { text: seg.voice, emotion: seg.emotion, action: seg.action, language: speechLanguage, sentenceIndex: sentenceIndex }
         });
+
+        if (seg.subtitle && speechLanguage !== subtitleLanguage) {
+          onSSE?.({ type: 'subtitle', data: { text: seg.subtitle, sentenceIndex: sentenceIndex } });
+        }
 
         try {
           const audioBuffer = await synthesizeStream(seg.voice, this.character.id, seg.emotion);
@@ -212,34 +198,6 @@ class UnifiedAgent {
         } catch {}
 
         allVoiceTexts.push(seg.voice);
-      }
-
-      // 翻译追加内容的字幕
-      if (speechLanguage !== subtitleLanguage) {
-        const additionalText = analysisResult.segments.map(s => s.voice).join('');
-        try {
-          const translatePrompt = buildSubtitleTranslatePrompt(additionalText, subtitleLanguage);
-          const translateResponse = callLLMStream({
-            model: config.model,
-            messages: [{ role: 'user', content: translatePrompt }],
-            temperature: 0
-          });
-
-          let subtitleText = '';
-          for await (const chunk of translateResponse) {
-            subtitleText += chunk;
-          }
-          subtitleText = subtitleText.replace(/^```[\s\S]*?```/gm, '').trim();
-          onSSE?.({ type: 'subtitle_append', data: { text: subtitleText } });
-        } catch (err) {
-          logDb.insert({
-            id: uuidv4(),
-            level: 'error',
-            category: 'agent',
-            content: `Subtitle translation (append) failed: ${err}`,
-            createdAt: new Date()
-          });
-        }
       }
     }
 

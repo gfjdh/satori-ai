@@ -19,6 +19,7 @@ export interface AnalysisContext {
   dialogueRequirements: string;
   availableEmotions: string[];
   speechLanguage: string;
+  subtitleLanguage: string;
 }
 
 export async function runAnalysisLoop(ctx: AnalysisContext): Promise<{ segments: Segment[] }> {
@@ -41,7 +42,8 @@ export async function runAnalysisLoop(ctx: AnalysisContext): Promise<{ segments:
     recentDialogues: recentText,
     availableEmotions: ctx.availableEmotions,
     skillList,
-    speechLanguage: ctx.speechLanguage
+    speechLanguage: ctx.speechLanguage,
+    subtitleLanguage: ctx.subtitleLanguage
   });
 
   let iteration = 0;

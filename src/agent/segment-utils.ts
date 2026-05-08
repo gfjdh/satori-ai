@@ -15,6 +15,7 @@ export function parseSegment(line: string): Segment | null {
         emotion: obj.emotion,
         action: obj.action,
         voice: obj.voice,
+        subtitle: obj.subtitle,
         needDeepThink: obj.needDeepThink === true
       };
     }

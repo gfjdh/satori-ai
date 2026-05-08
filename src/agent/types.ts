@@ -6,6 +6,7 @@ export interface Segment {
   emotion: string;
   action: string;
   voice: string;
+  subtitle?: string;
   needDeepThink?: boolean;
 }
 
