@@ -37,11 +37,11 @@ ${ctx.recentDialogues}
 ${ctx.userInput}
 
 ## 输出要求
-将回复分成若干短句，每句约10个字符。这些句子将用于语音合成，所以需要恰当切分且长度适中，并且使用${ctx.speechLanguage}输出
+将回复分成若干句，每句约15个字符，短句应当和前后句合并。这些句子将用于语音合成，所以需要恰当切分且长度适中，并且使用${ctx.speechLanguage}输出
 
 **输出格式**：JSON Lines，每行一个 JSON 对象，字段如下：
 
-{"emotion":"情感标签","action":"动作类型","voice":"文本（${ctx.speechLanguage}，约10字）","needDeepThink":true/false}
+{"emotion":"情感标签","action":"动作类型","voice":"文本（${ctx.speechLanguage}，约15字）","needDeepThink":true/false}
 
 ## 可用情感标签
 ${ctx.availableEmotions.join(', ')}

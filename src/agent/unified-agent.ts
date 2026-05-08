@@ -77,6 +77,14 @@ class UnifiedAgent {
       temperature: 0.7
     });
 
+    logDb.insert({
+      id: uuidv4(),
+      level: 'debug',
+      category: 'agent',
+      content: `[LLM Request] firstTurnPrompt:\n${firstTurnPrompt}`,
+      createdAt: new Date()
+    });
+
     let allVoiceTexts: string[] = [];
     let needDeepThinkFlag = false;
     let buffer = '';
@@ -158,6 +166,13 @@ class UnifiedAgent {
     if (speechLanguage !== subtitleLanguage && fullVoiceText) {
       try {
         const translatePrompt = buildSubtitleTranslatePrompt(fullVoiceText, subtitleLanguage);
+        logDb.insert({
+          id: uuidv4(),
+          level: 'debug',
+          category: 'agent',
+          content: `[LLM Request] subtitleTranslatePrompt:\n${translatePrompt}`,
+          createdAt: new Date()
+        });
         const translateResponse = callLLMStream({
           model: config.model,
           messages: [{ role: 'user', content: translatePrompt }],
@@ -217,6 +232,13 @@ class UnifiedAgent {
       // 翻译追加内容的字幕
       if (speechLanguage !== subtitleLanguage) {
         const additionalText = analysisResult.segments.map(s => s.voice).join('');
+        logDb.insert({
+          id: uuidv4(),
+          level: 'debug',
+          category: 'agent',
+          content: `[LLM Request] subtitleTranslatePrompt (append):\n${buildSubtitleTranslatePrompt(additionalText, subtitleLanguage)}`,
+          createdAt: new Date()
+        });
         try {
           const translatePrompt = buildSubtitleTranslatePrompt(additionalText, subtitleLanguage);
           const translateResponse = callLLMStream({
@@ -303,6 +325,14 @@ ${stateManager.getAffinityDescription()}
     ${affinityDimensionDesc}
   }
 }`;
+
+        logDb.insert({
+          id: crypto.randomUUID(),
+          level: 'debug',
+          category: 'agent',
+          content: `[LLM Request] stateUpdatePrompt:\n${updatePrompt}`,
+          createdAt: new Date()
+        });
 
         const response = callLLMStream({
           model: config.model,

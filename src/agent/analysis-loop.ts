@@ -44,6 +44,14 @@ export async function runAnalysisLoop(ctx: AnalysisContext): Promise<{ segments:
     speechLanguage: ctx.speechLanguage
   });
 
+  logDb.insert({
+    id: uuidv4(),
+    level: 'debug',
+    category: 'agent',
+    content: `[LLM Request] analysisPrompt (initial):\n${currentMessage}`,
+    createdAt: new Date()
+  });
+
   let iteration = 0;
   const maxIterations = 6;
   let finalSegments: Segment[] = [];

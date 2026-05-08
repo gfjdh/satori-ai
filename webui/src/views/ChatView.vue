@@ -396,7 +396,7 @@ function startStreamingText(text: string, sentenceIndex: number) {
 
   let charIndex = 0
   const chars = text.split('')
-  const BASE_DELAY = 200 // 每字符基础延迟(ms)
+  const BASE_DELAY = 20 // 每字符基础延迟(ms)
 
   function displayNextChar() {
     if (charIndex < chars.length) {
