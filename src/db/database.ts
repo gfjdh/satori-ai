@@ -1,7 +1,6 @@
 import Database, { Database as DatabaseType } from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import * as stringSimilarity from 'string-similarity';
 import { Dialogue, Memory, Task, KnowledgeEntry, LogEntry } from '../types/index.js';
 
 // 使用process.cwd()代替__dirname以兼容ESM/CJS
@@ -171,7 +170,7 @@ export const memoryDb = {
     );
   },
 
-  search(keywords: string[], startTime?: Date, endTime?: Date, limit: number = 10, granularity?: string): Memory[] {
+  search(startTime?: Date, endTime?: Date, limit: number = 10, granularity?: string): Memory[] {
     let allMemories = this.getAll();
 
     // 按粒度过滤
@@ -179,37 +178,16 @@ export const memoryDb = {
       allMemories = allMemories.filter(mem => mem.granularity === granularity);
     }
 
-    // 计算单条记忆的匹配分数
-    const scoreMemory = (mem: Memory): number => {
-      if (keywords.length === 0) return 1;
-      let score = 0;
-      for (let i = 0; i < keywords.length; i++) {
-        const kw = keywords[i];
-        // 关键词权重：第一个1.5，最后一个0.5，线性递减
-        const weight = 1.5 - (i / (keywords.length - 1 || 1)) * (1.5 - 0.5);
-        // 内容匹配（模糊）
-        const contentMatch = stringSimilarity.compareTwoStrings(kw, mem.content) > 0.3 ||
-          mem.content.includes(kw);
-        if (contentMatch) {
-          score += 0.3 * weight;
-        }
-      }
-      return score / keywords.length; // 归一化
-    };
-
+    // 时间范围过滤
     const results = allMemories.filter(mem => {
-      // 检查时间范围
       const timeMatched = (!startTime || mem.periodEnd >= startTime) &&
                          (!endTime || mem.periodStart <= endTime);
-      return timeMatched && scoreMemory(mem) > 0;
+      return timeMatched;
     });
 
-    // 按相关性排序并限制数量
-    results.sort((a, b) => scoreMemory(b) - scoreMemory(a)).slice(0, limit);
-    return results.map(mem => ({
-      ...mem,
-      relevance: scoreMemory(mem)
-    }));
+    // 按 period_start 降序排列
+    results.sort((a, b) => b.periodStart.getTime() - a.periodStart.getTime());
+    return results.slice(0, limit);
   },
 
   // 获取比指定记忆更粗粒度的所有记忆
@@ -419,37 +397,17 @@ export const knowledgeDb = {
     );
   },
 
-  search(keywords: string[], category?: string, limit: number = 20): KnowledgeEntry[] {
-    const allEntries = this.getAll();
+  search(category?: string, limit: number = 20): KnowledgeEntry[] {
+    let allEntries = this.getAll();
 
-    if (keywords.length === 0) {
-      const filtered = category ? allEntries.filter(e => e.category === category) : allEntries;
-      return filtered.slice(0, limit);
+    // 按分类过滤
+    if (category) {
+      allEntries = allEntries.filter(e => e.category === category);
     }
 
-    // 计算单条目的的匹配分数
-    const scoreEntry = (entry: KnowledgeEntry): number => {
-      let score = 0;
-      for (const kw of keywords) {
-        // 内容匹配（模糊）
-        const contentMatch = stringSimilarity.compareTwoStrings(kw, entry.content) > 0.3 ||
-          entry.content.includes(kw);
-        if (contentMatch) {
-          score += 0.3;
-        }
-      }
-      return score / keywords.length; // 归一化
-    };
-
-    // 过滤并排序
-    const results = allEntries
-      .filter(entry => category && entry.category !== category ? false : scoreEntry(entry) > 0)
-      .sort((a, b) => scoreEntry(b) - scoreEntry(a)).slice(0, limit);
-
-    return results.map(entry => ({
-      ...entry,
-      relevance: scoreEntry(entry)
-    }));
+    // 按 created_at 降序排列
+    allEntries.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return allEntries.slice(0, limit);
   },
 
   getAll(): KnowledgeEntry[] {

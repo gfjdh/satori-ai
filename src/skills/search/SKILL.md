@@ -17,7 +17,7 @@ description: 搜索技能 - 在长期记忆和资料库中检索相关信息，�
       "start": "2024-01-01",
       "end": "2024-12-31"
     },
-    "limit": 5
+    "limit": 10
   }
 }
 ```
@@ -27,7 +27,7 @@ description: 搜索技能 - 在长期记忆和资料库中检索相关信息，�
 | query | string | 是 | 用户查询文本 |
 | keywords.direct | string[] | 否 | 直接关键词 |
 | timeRange | object | 否 | 时间范围筛选 |
-| limit | number | 否 | 返回结果数量，默认5 |
+| limit | number | 否 | 返回结果数量，默认10 |
 
 ## 使用要点
 

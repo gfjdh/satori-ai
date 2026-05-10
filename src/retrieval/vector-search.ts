@@ -34,10 +34,17 @@ export async function vectorSearch(
 
   for (const m of memoriesWithEmbedding) {
     if (m.embedding) {
+      // 重要：Buffer 从 DB 检索后 length=字节数，但 new Float32Array(buffer) 会把 length 当元素数
+      // 正确方式：使用 buffer, byteOffset, length/4
+      const embedding = new Float32Array(
+        m.embedding.buffer,
+        m.embedding.byteOffset,
+        m.embedding.length / 4
+      );
       items.push({
         id: m.id,
         content: m.content,
-        embedding: Array.from(new Float32Array(m.embedding)),
+        embedding: Array.from(embedding),
         source: 'memory'
       });
     }
@@ -45,10 +52,15 @@ export async function vectorSearch(
 
   for (const k of knowledgeWithEmbedding) {
     if (k.embedding) {
+      const embedding = new Float32Array(
+        k.embedding.buffer,
+        k.embedding.byteOffset,
+        k.embedding.length / 4
+      );
       items.push({
         id: k.id,
         content: k.content,
-        embedding: Array.from(new Float32Array(k.embedding)),
+        embedding: Array.from(embedding),
         source: 'knowledge'
       });
     }
@@ -105,7 +117,10 @@ export async function generateAndStoreEmbedding(
   const embedding = embeddings[0];
 
   // 存储为 Blob
-  const buffer = Buffer.from(new Float32Array(embedding));
+  // 注意：Buffer.from(TypedArray) 会按 length（元素数）拷贝，而不是 byteLength
+  // 必须用 .buffer 来拷贝完整的底层 ArrayBuffer
+  const f32 = new Float32Array(embedding);
+  const buffer = Buffer.from(f32.buffer, 0, f32.byteLength);
 
   if (type === 'memory') {
     memoryDb.updateEmbedding(id, buffer);

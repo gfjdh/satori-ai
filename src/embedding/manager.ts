@@ -215,7 +215,9 @@ class EmbeddingManager {
       normB += b[i] * b[i];
     }
 
-    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+    const denom = Math.sqrt(normA) * Math.sqrt(normB);
+    if (denom === 0) return 0;  // 防止零向量导致 NaN
+    return dotProduct / denom;
   }
 
   /**

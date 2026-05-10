@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { logDb } from '../db/database.js';
+import { setCurrentCharacterId } from './knowledge.js';
 
 export interface StageDefinition {
   min: number;
@@ -52,6 +53,7 @@ export function loadCharacter(characterId: string): CharacterConfig | null {
       return null;
     }
 
+    setCurrentCharacterId(config.id);
     logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Loaded character: ${config.name}`, createdAt: new Date() });
     return config as CharacterConfig;
   } catch (error) {
@@ -70,9 +72,11 @@ export function loadDefaultCharacter(): CharacterConfig {
   }
 
   logDb.insert({ id: crypto.randomUUID(), level: 'warn', category: 'agent', content: 'No character card found, using built-in defaults', createdAt: new Date() });
-  return {
+  const defaultConfig = {
     id: 'default',
     name: '助手',
     personality: '助手'
   };
+  setCurrentCharacterId(defaultConfig.id);
+  return defaultConfig;
 }

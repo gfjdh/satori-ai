@@ -37,7 +37,7 @@ class MemoryManager {
     const config = getLLMConfig();
 
     // 构建总结prompt
-    const summaryPrompt = `请总结以下对话，重点在于将已有总结和新消息结合起来：
+    const summaryPrompt = `请使用中文总结以下对话，重点在于将已有总结和新消息结合起来：
 
 ${currentShortTermMemory ? `当前话题：${currentShortTermMemory.topic}\n已有总结：${currentShortTermMemory.summary}` : ''}
 新一轮消息：

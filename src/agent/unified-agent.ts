@@ -9,7 +9,7 @@ import { dialogueDb, logDb } from '../db/database.js';
 import { callLLMStream, getLLMConfig } from '../api/llm.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Dialogue, SSEMessage } from '../types/index.js';
-import { jointSearch, formatRetrievalContext } from '../retrieval/joint-search.js';
+import { skillEngine } from '../skills/engine.js';
 import { synthesizeStream } from '../tts/client.js';
 import { getAvailableEmotions } from '../tts/client.js';
 import { loadDefaultCharacter, type CharacterConfig } from '../character/loader.js';
@@ -51,10 +51,11 @@ class UnifiedAgent {
     const characterInfo = this.character.characterInfo || this.character.personality || '';
     const dialogueRequirements = this.character.dialogueRequirements || '';
 
-    // ========== 阶段1：预检索 ==========
-    const shortTermMemory = memoryManager.getCurrentShortTermMemory();
-    const retrievalResults = await jointSearch(userInput, shortTermMemory);
-    const retrievalContext = formatRetrievalContext(retrievalResults);
+    // ========== 阶段1：预检索（通过 Skill 统一入口） ==========
+    const retrievalContext = await skillEngine.executeSkill('search', {
+      query: userInput,
+      limit: 10
+    });
 
     const recentText = getRecentDialoguesText(20);
 
