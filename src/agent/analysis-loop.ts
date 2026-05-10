@@ -1,54 +1,41 @@
 /**
  * 深度分析 Loop
+ * 纯粹的信息检索/工具执行器，只负责解决问题，返回分析结果供 polisher 使用
  */
 
-import { stateManager } from '../state/manager.js';
 import { skillEngine } from '../skills/engine.js';
 import { logDb } from '../db/database.js';
 import { callLLMStream, getLLMConfig } from '../api/llm.js';
 import { v4 as uuidv4 } from 'uuid';
-import { Segment } from './types.js';
 import { buildAnalysisPrompt } from './prompts.js';
-import { extractJSONLines, parseSegment } from './segment-utils.js';
-import { getDialogueStats, getRecentDialoguesText } from './dialogue-stats.js';
+
+export interface AnalysisResult {
+  /** 回答内容（未分段的完整文本） */
+  answerText: string;
+}
 
 export interface AnalysisContext {
   userInput: string;
   retrievalResults: string;
   characterInfo: string;
-  dialogueRequirements: string;
-  availableEmotions: string[];
-  speechLanguage: string;
-  subtitleLanguage: string;
 }
 
-export async function runAnalysisLoop(ctx: AnalysisContext): Promise<{ segments: Segment[] }> {
+export async function runAnalysisLoop(ctx: AnalysisContext): Promise<AnalysisResult> {
   const config = getLLMConfig();
   const allSkills = skillEngine.getAllSkillMetas();
   const skillList = allSkills.map(s => `- ${s.name}: ${s.description}`).join('\n');
-
-  const recentText = getRecentDialoguesText(20);
-  const emotionDesc = stateManager.getEmotionDescription();
-  const affinityDesc = stateManager.getAffinityDescription();
+  const recentSkillsContext = await skillEngine.getRecentSkillsContext();
 
   let currentMessage = buildAnalysisPrompt({
     userInput: ctx.userInput,
     retrievalResults: ctx.retrievalResults,
     characterInfo: ctx.characterInfo,
-    dialogueRequirements: ctx.dialogueRequirements,
-    emotionDescription: emotionDesc,
-    affinityDescription: affinityDesc,
-    dialogueStats: getDialogueStats(),
-    recentDialogues: recentText,
-    availableEmotions: ctx.availableEmotions,
     skillList,
-    speechLanguage: ctx.speechLanguage,
-    subtitleLanguage: ctx.subtitleLanguage
+    recentSkillsContext
   });
 
   let iteration = 0;
-  const maxIterations = 6;
-  let finalSegments: Segment[] = [];
+  const maxIterations = 10;
 
   while (iteration < maxIterations) {
     iteration++;
@@ -106,19 +93,38 @@ export async function runAnalysisLoop(ctx: AnalysisContext): Promise<{ segments:
       continue;
     }
 
-    // 没有技能调用，解析 segment 输出
-    const lines = extractJSONLines(fullResponse);
-    for (const line of lines) {
-      const seg = parseSegment(line);
-      if (seg) finalSegments.push(seg);
+    // 没有技能调用，提取纯文本回答
+    const answerText = extractAnswerText(fullResponse);
+    if (answerText) {
+      return { answerText };
     }
+
     break;
   }
 
-  if (finalSegments.length === 0) {
-    // fallback
-    finalSegments.push({ emotion: 'normal', action: 'idle', voice: '嗯，让我想想...' });
+  return { answerText: '没有找到相关信息' };
+}
+
+function extractAnswerText(text: string): string | null {
+  // 移除 SKILL_README / SKILL_CALL 等指令行，提取纯文本回答
+  const lines = text.split('\n');
+  const answerLines: string[] = [];
+  let inJsonBlock = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('SKILL_README:') || trimmed.startsWith('SKILL_CALL:')) {
+      inJsonBlock = true;
+      continue;
+    }
+    if (inJsonBlock && (trimmed.startsWith('{') || trimmed === '')) {
+      inJsonBlock = false;
+    }
+    if (!inJsonBlock && trimmed && !trimmed.startsWith('//') && !trimmed.startsWith('```')) {
+      answerLines.push(trimmed);
+    }
   }
 
-  return { segments: finalSegments };
+  const result = answerLines.join('\n').trim();
+  return result.length > 0 ? result : null;
 }

@@ -17,6 +17,7 @@ import { loadDefaultCharacter, type CharacterConfig } from '../character/loader.
 import { buildFirstTurnPrompt } from './prompts.js';
 import { parseSegment } from './segment-utils.js';
 import { runAnalysisLoop } from './analysis-loop.js';
+import { runPolisherLoop } from './polisher.js';
 import { getDialogueStats, getRecentDialoguesText } from './dialogue-stats.js';
 
 // ========== UnifiedAgent 主类 ==========
@@ -171,9 +172,21 @@ class UnifiedAgent {
       // 通知前端开始深度思考
       onSSE?.({ type: 'deep_think_pending', data: { value: true } });
 
+      // 保存初次回复内容
+      const firstTurnText = allVoiceTexts.join('');
+
+      // 深度分析（纯信息检索，不负责对话）
       const analysisResult = await runAnalysisLoop({
         userInput,
         retrievalResults: retrievalContext,
+        characterInfo
+      });
+
+      // Polisher 负责整合初次回复 + 分析结果，生成续接内容
+      const polisherSegments = await runPolisherLoop({
+        userInput,
+        analysisResult: analysisResult.answerText,
+        firstTurnReply: firstTurnText,
         characterInfo,
         dialogueRequirements,
         availableEmotions,
@@ -181,8 +194,8 @@ class UnifiedAgent {
         subtitleLanguage
       });
 
-      // 发送分析结果的 segments
-      for (const seg of analysisResult.segments) {
+      // 发送 polisher 生成的 segments
+      for (const seg of polisherSegments) {
         onSSE?.({
           type: 'voice',
           data: { text: seg.voice, emotion: seg.emotion, action: seg.action, language: speechLanguage, sentenceIndex: sentenceIndex }

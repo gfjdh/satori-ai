@@ -11,11 +11,19 @@ import { logDb } from '../db/database.js';
 import { v4 as uuidv4 } from 'uuid';
 import jieba from 'nodejieba';
 
+export interface RetrievalMetadata {
+  granularity?: 'year' | 'season' | 'month' | 'week' | 'day' | 'topic';
+  periodStart?: string;
+  periodEnd?: string;
+  category?: string;
+}
+
 export interface JointSearchResult {
   id: string;
   content: string;
   source: 'memory' | 'knowledge' | 'character_knowledge';
   score: number;
+  metadata: RetrievalMetadata;
 }
 
 /**
@@ -107,21 +115,48 @@ export async function jointSearch(
   // 使用 jieba 分词 + string-similarity 重排
   const reranked = rerankWithJieba(query, candidates, rerankTopK);
 
+  // 补充 metadata
+  const allMemories = memoryDb.getAll();
+  const allKnowledge = knowledgeDb.getAll();
+
+  const results: JointSearchResult[] = reranked.map(r => {
+    const result: JointSearchResult = {
+      id: r.id,
+      content: r.content,
+      source: r.source,
+      score: r.finalScore,
+      metadata: {}
+    };
+
+    if (r.source === 'memory') {
+      const mem = allMemories.find(m => m.id === r.id);
+      if (mem) {
+        result.metadata = {
+          granularity: mem.granularity,
+          periodStart: mem.periodStart.toISOString(),
+          periodEnd: mem.periodEnd.toISOString()
+        };
+      }
+    } else if (r.source === 'knowledge') {
+      const kb = allKnowledge.find(k => k.id === r.id);
+      if (kb) {
+        result.metadata = { category: kb.category };
+      }
+    }
+
+    return result;
+  });
+
   const totalLatency = Date.now() - start;
   logDb.insert({
     id: uuidv4(),
     level: 'info',
     category: 'retrieval',
-    content: `[JointSearch] 总耗时: ${totalLatency}ms, 向量结果: ${vectorResults.length}, 关键词结果: ${keywordResults.length}, 最终: ${reranked.length}`,
+    content: `[JointSearch] 总耗时: ${totalLatency}ms, 向量结果: ${vectorResults.length}, 关键词结果: ${keywordResults.length}, 最终: ${results.length}`,
     createdAt: new Date()
   });
 
-  return reranked.map(r => ({
-    id: r.id,
-    content: r.content,
-    source: r.source,
-    score: r.finalScore
-  }));
+  return results;
 }
 
 /**
@@ -131,8 +166,26 @@ export function formatRetrievalContext(results: JointSearchResult[]): string {
   if (results.length === 0) return '（无相关检索结果）';
 
   return results
-    .map(r => `[${r.source}] ${r.content}`)
+    .map(r => {
+      let label = `[${r.source}]`;
+
+      if (r.source === 'memory' && r.metadata.granularity) {
+        const period = r.metadata.periodStart && r.metadata.periodEnd
+          ? `${formatDate(r.metadata.periodStart)}~${formatDate(r.metadata.periodEnd)}`
+          : '';
+        label = `[${r.metadata.granularity}${period ? ' ' + period : ''}]`;
+      } else if (r.source === 'knowledge' && r.metadata.category) {
+        label = `[${r.metadata.category}]`;
+      }
+
+      return `${label} ${r.content} (score: ${r.score.toFixed(3)})`;
+    })
     .join('\n');
+}
+
+function formatDate(isoString: string): string {
+  const d = new Date(isoString);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 export default { jointSearch, formatRetrievalContext };
