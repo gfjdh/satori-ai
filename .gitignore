@@ -16,7 +16,7 @@ full-hub/logs
 full-hub/model
 full-hub/rag-hub
 full-hub/tts-hub
-character-cards/*/TTS
+character-cards/*
 
 # 忽略所有 node_modules（无论在哪）
 **/node_modules/
