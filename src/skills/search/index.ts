@@ -59,6 +59,10 @@ const GRANULARITY_HIERARCHY: Record<string, string[]> = {
 
 /**
  * 计算 BM25 得分（关键词匹配部分）
+ * 返回值在 [0,1] 之间，表示关键词在文档中的相关程度
+ * 这里简化了 IDF 部分，假设所有关键词的 IDF 都相同，因此只计算 TF 饱和度
+ * TF 计算为：查询关键词在文档中出现的总次数
+ * BM25 公式简化为：TF / (K1 + TF)，其中 K1 是调节参数，常用值在 1.2 到 2.0 之间
  */
 function computeBM25(doc: string, keywords: string[]): number {
   if (!keywords || keywords.length === 0) return 0;
@@ -361,12 +365,28 @@ export async function search(params: SearchParams): Promise<string> {
     const k = Math.max(1, Math.floor(limit / 2));
     const keywordList = keywords?.direct || [];
 
-    // 并行检索三种来源
-    const [memoryResults, knowledgeResults, charResults] = await Promise.all([
-      searchMemories(queryStr, keywordList, timeRange, k),
-      searchKnowledge(queryStr, keywordList, k),
-      Promise.resolve(searchCharKnowledge(queryStr, keywordList, k))
-    ]);
+    // 三种来源各自独立容错，一个源失败不影响其他源
+    let memoryResults: RetrievalResult[] = [];
+    let knowledgeResults: RetrievalResult[] = [];
+    let charResults: RetrievalResult[] = [];
+
+    try {
+      memoryResults = await searchMemories(queryStr, keywordList, timeRange, k);
+    } catch (error) {
+      logDb.insert({ id: uuidv4(), level: 'error', category: 'retrieval', content: `Memory search crashed: ${error}`, createdAt: new Date() });
+    }
+
+    try {
+      knowledgeResults = await searchKnowledge(queryStr, keywordList, k);
+    } catch (error) {
+      logDb.insert({ id: uuidv4(), level: 'error', category: 'retrieval', content: `Knowledge search crashed: ${error}`, createdAt: new Date() });
+    }
+
+    try {
+      charResults = searchCharKnowledge(queryStr, keywordList, k);
+    } catch (error) {
+      logDb.insert({ id: uuidv4(), level: 'error', category: 'retrieval', content: `Character knowledge search crashed: ${error}`, createdAt: new Date() });
+    }
 
     // 对记忆进行富化（前3条）
     const enrichedMemoryResults = memoryResults.slice(0, 3).map(r => ({

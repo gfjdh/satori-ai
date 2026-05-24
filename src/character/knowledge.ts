@@ -19,16 +19,18 @@ export interface CharacterKnowledgeItem {
 const knowledgeCache: Map<string, CharacterKnowledgeItem[]> = new Map();
 
 // 当前角色ID（由外部设置）
+// 模块变量优先；process.env 作为跨模块实例（源码 vs dist 编译产物）的共享回退
 let currentCharacterId: string = '';
 
 // 设置当前角色ID
 export function setCurrentCharacterId(characterId: string): void {
   currentCharacterId = characterId;
+  process.env.CURRENT_CHARACTER_ID = characterId;
 }
 
 // 获取当前角色ID
 export function getCurrentCharacterId(): string {
-  return currentCharacterId;
+  return currentCharacterId || process.env.CURRENT_CHARACTER_ID || '';
 }
 
 // 加载角色知识

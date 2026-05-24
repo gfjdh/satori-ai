@@ -35,7 +35,7 @@ export async function runAnalysisLoop(ctx: AnalysisContext): Promise<AnalysisRes
   });
 
   let iteration = 0;
-  const maxIterations = 6;
+  const maxIterations = 2;
 
   while (iteration < maxIterations) {
     iteration++;
