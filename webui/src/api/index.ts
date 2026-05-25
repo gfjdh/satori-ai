@@ -85,7 +85,8 @@ export const logApi = {
   getRecent: (limit = 200, category?: string) => {
     return api.get<LogEntry[]>('/logs', { params: { limit, category } })
   },
-  clear: () => api.delete('/logs')
+  clear: () => api.delete('/logs'),
+  flush: () => api.post('/logs/flush')
 }
 
 // 对话API

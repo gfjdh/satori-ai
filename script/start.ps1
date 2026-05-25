@@ -1,91 +1,32 @@
-function Start-TTS-Service {
-    Write-Host "[Start] TTS Service (port $ttsPort)..." -NoNewline
+# Satori AI - Service Manager
+# Usage: .\start.ps1 -service <backend|webui|tts|embedding|live2d|all>
 
-    $ttsPath = Join-Path $projectRoot "tts-service"
-    if (-not (Test-Path "$ttsPath\venv\Scripts\python.exe")) {
-        Write-Host ""
-        Write-Host "  TTS venv not found. Run tts\01_setup_env.bat first." -ForegroundColor Red
-        return
-    }
+param(
+    [string]$service = "menu"
+)
 
-    $job = Start-Job -ScriptBlock {
-        param($path, $port)
-        Set-Location $path
-        $env:PORT = $port
-        python app.py
-    } -ArgumentList $ttsPath, $ttsPort
+$ErrorActionPreference = "Continue"
+$projectRoot = Split-Path -Parent $PSScriptRoot
+$backendPort = 3000
+$webuiPort = 5173
+$ttsPort = 5030
+$embeddingPort = 7860
 
-    # Wait and verify the service actually started
-    Start-Sleep 3
-
-    try {
-        $response = Invoke-WebRequest -Uri "http://127.0.0.1:$ttsPort/api/health" -UseBasicParsing -TimeoutSec 3
-        if ($response.StatusCode -eq 200) {
-            Write-Host " OK (running)" -ForegroundColor Green
-            return
-        }
-    } catch {
-        # Service not responding
-    }
-
-    # Check if job is still running (it might have crashed)
-    $jobInfo = Get-Job -Id $job.Id -ErrorAction SilentlyContinue
-    if ($jobInfo.State -eq 'Running') {
-        # Job is running but service not responding - might still be loading
-        Write-Host " OK (job running, checking port...)" -ForegroundColor Yellow
-        return
-    }
-
-    # Job failed to start or crashed
+function Show-Menu {
     Write-Host ""
-    Write-Host "  FAILED: TTS service not responding after 3s" -ForegroundColor Red
-    Write-Host "  Job state: $($jobInfo.State)" -ForegroundColor Yellow
-    Write-Host "  Hint: Check tts-service/app.py for errors, ensure venv is set up" -ForegroundColor Yellow
-    Stop-Job -Id $job.Id -ErrorAction SilentlyContinue
-    Remove-Job -Id $job.Id -ErrorAction SilentlyContinue
-}
-
-function Start-Embedding-Service {
-    Write-Host "[Start] Embedding Service (port $embeddingPort)..." -NoNewline
-
-    $embPath = Join-Path $projectRoot "embedding-service"
-    if (-not (Test-Path "$embPath\venv\Scripts\python.exe")) {
-        Write-Host ""
-        Write-Host "  Embedding venv not found. Run embedding\01_setup_env.bat first." -ForegroundColor Red
-        return
-    }
-
-    $job = Start-Job -ScriptBlock {
-        param($path, $port)
-        Set-Location $path
-        python -m uvicorn main:app --host 0.0.0.0 --port $port
-    } -ArgumentList $embPath, $embeddingPort
-
-    # Wait and verify the service actually started
-    Start-Sleep 3
-
-    try {
-        $response = Invoke-WebRequest -Uri "http://127.0.0.1:$embeddingPort/health" -UseBasicParsing -TimeoutSec 3
-        if ($response.StatusCode -eq 200) {
-            Write-Host " OK (running)" -ForegroundColor Green
-            return
-        }
-    } catch {
-        # Service not responding
-    }
-
-    $jobInfo = Get-Job -Id $job.Id -ErrorAction SilentlyContinue
-    if ($jobInfo.State -eq 'Running') {
-        Write-Host " OK (job running, checking port...)" -ForegroundColor Yellow
-        return
-    }
-
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "  Satori AI - Service Manager" -ForegroundColor Cyan
+    Write-Host "========================================" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "  FAILED: Embedding service not responding after 3s" -ForegroundColor Red
-    Write-Host "  Job state: $($jobInfo.State)" -ForegroundColor Yellow
-    Write-Host "  Hint: Check embedding-service/main.py for errors" -ForegroundColor Yellow
-    Stop-Job -Id $job.Id -ErrorAction SilentlyContinue
-    Remove-Job -Id $job.Id -ErrorAction SilentlyContinue
+    Write-Host "  [1] Backend      (port $backendPort)" -ForegroundColor White
+    Write-Host "  [2] WebUI        (port $webuiPort)" -ForegroundColor White
+    Write-Host "  [3] TTS          (port $ttsPort)" -ForegroundColor White
+    Write-Host "  [4] Embedding    (port $embeddingPort)" -ForegroundColor White
+    Write-Host "  [5] Live2D      (system Python)" -ForegroundColor White
+    Write-Host "  [A] All Services" -ForegroundColor Yellow
+    Write-Host "  [K] Stop All Services" -ForegroundColor Red
+    Write-Host "  [Q] Quit" -ForegroundColor Red
+    Write-Host ""
 }
 
 function Start-Backend-Service {
@@ -97,28 +38,8 @@ function Start-Backend-Service {
         npm run dev
     } -ArgumentList $projectRoot, $backendPort
 
-    Start-Sleep 3
-
-    try {
-        $response = Invoke-WebRequest -Uri "http://localhost:$backendPort/api/health" -UseBasicParsing -TimeoutSec 3
-        if ($response.StatusCode -eq 200) {
-            Write-Host " OK (running)" -ForegroundColor Green
-            return
-        }
-    } catch {
-    }
-
-    $jobInfo = Get-Job -Id $job.Id -ErrorAction SilentlyContinue
-    if ($jobInfo.State -eq 'Running') {
-        Write-Host " OK (job running)" -ForegroundColor Yellow
-        return
-    }
-
-    Write-Host ""
-    Write-Host "  FAILED: Backend not responding after 3s" -ForegroundColor Red
-    Write-Host "  Job state: $($jobInfo.State)" -ForegroundColor Yellow
-    Stop-Job -Id $job.Id -ErrorAction SilentlyContinue
-    Remove-Job -Id $job.Id -ErrorAction SilentlyContinue
+    Start-Sleep 2
+    Write-Host " OK (running in background job)" -ForegroundColor Green
 }
 
 function Start-WebUI-Service {
@@ -138,28 +59,48 @@ function Start-WebUI-Service {
         npm run dev
     } -ArgumentList "$projectRoot\webui", $webuiPort
 
-    Start-Sleep 3
+    Start-Sleep 2
+    Write-Host " OK (running in background job)" -ForegroundColor Green
+}
 
-    try {
-        $response = Invoke-WebRequest -Uri "http://localhost:$webuiPort" -UseBasicParsing -TimeoutSec 3
-        if ($response.StatusCode -eq 200) {
-            Write-Host " OK (running)" -ForegroundColor Green
-            return
-        }
-    } catch {
-    }
+function Start-TTS-Service {
+    Write-Host "[Start] TTS Service (port $ttsPort)..." -NoNewline
 
-    $jobInfo = Get-Job -Id $job.Id -ErrorAction SilentlyContinue
-    if ($jobInfo.State -eq 'Running') {
-        Write-Host " OK (job running)" -ForegroundColor Yellow
+    $ttsPath = Join-Path $projectRoot "tts-service"
+    if (-not (Test-Path "$ttsPath\venv\Scripts\python.exe")) {
+        Write-Host ""
+        Write-Host "  TTS venv not found. Run tts\01_setup_env.bat first." -ForegroundColor Red
         return
     }
 
-    Write-Host ""
-    Write-Host "  FAILED: WebUI not responding after 3s" -ForegroundColor Red
-    Write-Host "  Job state: $($jobInfo.State)" -ForegroundColor Yellow
-    Stop-Job -Id $job.Id -ErrorAction SilentlyContinue
-    Remove-Job -Id $job.Id -ErrorAction SilentlyContinue
+    $job = Start-Job -ScriptBlock {
+        param($path, $port)
+        Set-Location $path
+        & ".\venv\Scripts\python.exe" "app.py"
+    } -ArgumentList $ttsPath, $ttsPort
+
+    Start-Sleep 2
+    Write-Host " OK (running in background job)" -ForegroundColor Green
+}
+
+function Start-Embedding-Service {
+    Write-Host "[Start] Embedding Service (port $embeddingPort)..." -NoNewline
+
+    $embPath = Join-Path $projectRoot "embedding-service"
+    if (-not (Test-Path "$embPath\venv\Scripts\python.exe")) {
+        Write-Host ""
+        Write-Host "  Embedding venv not found. Run embedding\01_setup_env.bat first." -ForegroundColor Red
+        return
+    }
+
+    $job = Start-Job -ScriptBlock {
+        param($path, $port)
+        Set-Location $path
+        & ".\venv\Scripts\python.exe" -m uvicorn main:app --host 0.0.0.0 --port $port
+    } -ArgumentList $embPath, $embeddingPort
+
+    Start-Sleep 2
+    Write-Host " OK (running in background job)" -ForegroundColor Green
 }
 
 function Start-Live2D-Service {
@@ -178,27 +119,16 @@ function Start-Live2D-Service {
         return
     }
 
+    # Use pythonw.exe to avoid console window popup
     $live2dScript = Join-Path $projectRoot "live2d-widget\live2d-launcher.py"
-    $proc = Start-Process -FilePath "pythonw.exe" -ArgumentList $live2dScript -WorkingDirectory "$projectRoot\live2d-widget" -WindowStyle Hidden -PassThru
-
-    Start-Sleep 3
-
-    if ($proc -and -not $proc.HasExited) {
-        Write-Host " OK (running, PID: $($proc.Id))" -ForegroundColor Green
-    } else {
-        Write-Host ""
-        Write-Host "  FAILED: Live2D launcher exited immediately (exit code: $($proc.ExitCode))" -ForegroundColor Red
-        Write-Host "  Hint: Run 'python live2d-widget\live2d-launcher.py' manually to see errors" -ForegroundColor Yellow
-    }
+    Start-Process -FilePath "pythonw.exe" -ArgumentList $live2dScript -WorkingDirectory "$projectRoot\live2d-widget" -WindowStyle Hidden
+    Start-Sleep 2
+    Write-Host " OK" -ForegroundColor Green
 }
 
 function Stop-All-Services {
     Write-Host ""
     Write-Host "[Stop] Stopping all services..." -ForegroundColor Yellow
-
-    # Stop all background jobs
-    Get-Job | Stop-Job -ErrorAction SilentlyContinue
-    Get-Job | Remove-Job -ErrorAction SilentlyContinue
 
     # Kill by window title (non-blocking)
     $windowTitles = @("Backend", "WebUI", "TTS Service", "Embedding Service", "Live2D Launcher")
@@ -223,4 +153,69 @@ function Stop-All-Services {
 
     Write-Host ""
     Write-Host "Done. Some processes may have already exited." -ForegroundColor Cyan
+}
+
+function Start-All-Services {
+    Write-Host ""
+    Write-Host "[Info] Starting all services..." -ForegroundColor Cyan
+    Write-Host ""
+
+    Start-Backend-Service
+    Start-WebUI-Service
+    Start-TTS-Service
+    Start-Embedding-Service
+    Start-Live2D-Service
+
+    Write-Host ""
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "  All services started!" -ForegroundColor Green
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  Backend:    http://localhost:$backendPort" -ForegroundColor White
+    Write-Host "  WebUI:      http://localhost:$webuiPort" -ForegroundColor White
+    Write-Host "  TTS API:    http://localhost:$ttsPort/api" -ForegroundColor White
+    Write-Host "  Embedding:  http://localhost:$embeddingPort" -ForegroundColor White
+    Write-Host ""
+}
+
+# Main logic
+switch ($service.ToLower()) {
+    "backend" { Start-Backend-Service }
+    "webui" { Start-WebUI-Service }
+    "tts" { Start-TTS-Service }
+    "embedding" { Start-Embedding-Service }
+    "live2d" { Start-Live2D-Service }
+    "all" { Start-All-Services }
+    "menu" {
+        while ($true) {
+            Show-Menu
+            $choice = Read-Host "Select service to start"
+            switch ($choice.ToLower()) {
+                "1" { Start-Backend-Service }
+                "backend" { Start-Backend-Service }
+                "2" { Start-WebUI-Service }
+                "webui" { Start-WebUI-Service }
+                "3" { Start-TTS-Service }
+                "tts" { Start-TTS-Service }
+                "4" { Start-Embedding-Service }
+                "embedding" { Start-Embedding-Service }
+                "5" { Start-Live2D-Service }
+                "live2d" { Start-Live2D-Service }
+                "a" { Start-All-Services }
+                "all" { Start-All-Services }
+                "k" { Stop-All-Services }
+                "stop" { Stop-All-Services }
+                "q" { break }
+                default {
+                    Write-Host "Invalid choice: $choice" -ForegroundColor Red
+                }
+            }
+            if ($choice -eq "q") { break }
+        }
+    }
+    default {
+        Write-Host "Usage: .\start.ps1 [-service <backend|webui|tts|embedding|live2d|all|menu>]" -ForegroundColor Yellow
+        Write-Host "  No service specified - showing menu" -ForegroundColor Gray
+        & $PSCommandPath -service menu
+    }
 }

@@ -89,6 +89,16 @@ app.get('/api/logs', (req: Request, res: Response) => {
   }
 });
 
+// 立即将日志输出到文件
+app.post('/api/logs/flush', async (_req: Request, res: Response) => {
+  try {
+    await logDb.flushToFile(true);
+    res.json({ success: true, message: 'Logs flushed to file' });
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
 // 清除日志
 app.delete('/api/logs', (req: Request, res: Response) => {
   try {
@@ -304,6 +314,8 @@ app.get('/api/tasks', (req: Request, res: Response) => {
 
 // ========== 对话接口 (SSE流式) ==========
 
+let currentChatAbortController: AbortController | null = null;
+
 app.post('/api/chat', async (req: Request, res: Response) => {
   const { message } = req.body;
 
@@ -311,6 +323,13 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     res.status(400).json({ error: 'Message is required' });
     return;
   }
+
+  // 中断当前正在进行的对话（视为正常结束，后处理由 unifiedAgent.finalizeTurn 完成）
+  if (currentChatAbortController) {
+    currentChatAbortController.abort();
+  }
+  currentChatAbortController = new AbortController();
+  const signal = currentChatAbortController.signal;
 
   // 设置SSE
   res.setHeader('Content-Type', 'text/event-stream');
@@ -323,19 +342,21 @@ app.post('/api/chat', async (req: Request, res: Response) => {
   };
 
   try {
-    // 处理对话
-    const response = await unifiedAgent.process(message, (msg) => {
+    await unifiedAgent.process(message, (msg) => {
       sendSSE(msg.type, msg.data as unknown as string);
-    });
+    }, signal);
 
-    // 发送完成信号
-    sendSSE('done', { response });
-
+    // done 事件已由 unifiedAgent.finalizeTurn() 发送，这里只需关闭连接
     res.end();
   } catch (error) {
     logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'agent', content: `Chat API Error: ${error}`, createdAt: new Date() });
     sendSSE('error', { message: String(error) });
     res.end();
+  } finally {
+    // 清理（仅当仍是当前 controller 时）
+    if (currentChatAbortController && currentChatAbortController.signal === signal) {
+      currentChatAbortController = null;
+    }
   }
 });
 

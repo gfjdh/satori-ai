@@ -1,6 +1,14 @@
 /**
- * Unified Agent v2 — 流式分段响应
- * 预检索 → 流式LLM分段输出 → TTS实时合成 → 字幕翻译 → (可选)深度分析
+ * Unified Agent v5 — Polisher 主循环 + Analyzer 子例程
+ *
+ * 架构：polisher 驱动，analyzer 作为其"万能助手"子例程。
+ * 各自维护 ChatMessage[] 消息列表，交替协作。
+ *
+ * v5 变更：
+ * - polisher 作为主循环，当 needDeepThink=true 时调用 analyzer 子例程
+ * - polisher 在 voice/subtitle 中表达信息需求，analyzer 参数化为工具调用
+ * - analyzer 只输出 SKILL_README/SKILL_CALL/DONE，结果原样传递给 polisher
+ * - 两套 ChatMessage[] 分别持久化，跨轮次增长
  */
 
 import { stateManager } from '../state/manager.js';
@@ -14,13 +22,10 @@ import { synthesizeStream } from '../tts/client.js';
 import { getAvailableEmotions } from '../tts/client.js';
 import { loadDefaultCharacter, type CharacterConfig } from '../character/loader.js';
 
-import { buildFirstTurnPrompt } from './prompts.js';
+import { buildPolisherMessages, buildPolisherResultUser, buildAnalyzerMessages, buildAnalyzerContinuationUser, type ChatMessage } from './prompts.js';
 import { parseSegment } from './segment-utils.js';
-import { runAnalysisLoop } from './analysis-loop.js';
-import { runPolisherLoop } from './polisher.js';
+import { createAnalysisSession } from './analysis-loop.js';
 import { getDialogueStats, getRecentDialoguesText } from './dialogue-stats.js';
-
-// ========== UnifiedAgent 主类 ==========
 
 class UnifiedAgent {
   private character: CharacterConfig;
@@ -31,7 +36,8 @@ class UnifiedAgent {
 
   async process(
     userInput: string,
-    onSSE?: (message: SSEMessage) => void
+    onSSE?: (message: SSEMessage) => void,
+    signal?: AbortSignal
   ): Promise<string> {
     const turnIndex = dialogueDb.getTurnCount() + 1;
     const turnId = uuidv4();
@@ -51,16 +57,22 @@ class UnifiedAgent {
     const characterInfo = this.character.characterInfo || this.character.personality || '';
     const dialogueRequirements = this.character.dialogueRequirements || '';
 
-    // ========== 阶段1：预检索（通过 Skill 统一入口） ==========
+    const allVoiceTexts: string[] = [];
+    let sentenceIndex = 0;
+
+    // ========== 阶段1：预检索 ==========
     const retrievalContext = await skillEngine.executeSkill('search', {
       query: userInput,
       limit: 10
     });
 
-    const recentText = getRecentDialoguesText(20);
+    if (signal?.aborted) {
+      return this.finalizeTurn(userInput, allVoiceTexts, onSSE, turnId, turnIndex);
+    }
 
-    // ========== 阶段2：流式 LLM 调用 ==========
-    const firstTurnPrompt = buildFirstTurnPrompt({
+    // ========== 阶段2：构建 polisher 初始消息列表 ==========
+    const recentText = getRecentDialoguesText(20);
+    const polisherMessages: ChatMessage[] = buildPolisherMessages({
       userInput,
       retrievalResults: retrievalContext,
       characterInfo,
@@ -74,168 +86,167 @@ class UnifiedAgent {
       subtitleLanguage
     });
 
-    const streamResponse = callLLMStream({
-      model: config.model,
-      messages: [{ role: 'user', content: firstTurnPrompt }],
-      temperature: 0.7
-    });
+    // ========== 阶段3：Polisher 驱动的主循环 ==========
+    let polisherRound = 0;
+    const maxPolisherRounds = 3;
+    let analyzerMessages: ChatMessage[] = [];
+    let allRawFindings = '';
 
-    let allVoiceTexts: string[] = [];
-    let needDeepThinkFlag = false;
-    let buffer = '';
-    let sentenceIndex = 0;
+    const skillList = skillEngine.getAllSkillMetas()
+      .map(s => `- ${s.name}: ${s.description}`).join('\n');
 
-    // 并行处理流式输出
-    for await (const chunk of streamResponse) {
-      buffer += chunk;
+    while (polisherRound < maxPolisherRounds) {
+      if (signal?.aborted) break;
+      polisherRound++;
 
-      // 尝试解析完整的 JSON Lines
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+      // --- 流式调用 polisher ---
+      let fullResponse = '';
+      let buffer = '';
+      let roundNeedDeepThink = false;
+      let infoNeed = '';
 
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || !trimmed.startsWith('{')) continue;
+      const stream = callLLMStream(
+        { model: config.model, messages: polisherMessages, temperature: 0.7 },
+        true,
+        `polisher-round-${polisherRound}`,
+        signal
+      );
 
-        const seg = parseSegment(trimmed);
-        if (!seg) continue;
+      for await (const chunk of stream) {
+        if (signal?.aborted) break;
+        buffer += chunk;
 
-        // 检查 needDeepThink
-        if (seg.needDeepThink && !needDeepThinkFlag) {
-          needDeepThinkFlag = true;
-        }
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
-        // 发送 voice 事件
-        onSSE?.({
-          type: 'voice',
-          data: {
-            text: seg.voice,
-            emotion: seg.emotion,
-            action: seg.action,
-            language: speechLanguage,
-            sentenceIndex: sentenceIndex
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith('{')) continue;
+
+          const seg = parseSegment(trimmed);
+          if (!seg) continue;
+
+          fullResponse += trimmed + '\n';
+
+          if (seg.needDeepThink && !roundNeedDeepThink) {
+            roundNeedDeepThink = true;
+            infoNeed = seg.subtitle || seg.voice;
           }
-        });
 
-        // 发送 subtitle 事件（仅当语言不同时且有subtitle内容）
-        if (seg.subtitle && speechLanguage !== subtitleLanguage) {
+          sentenceIndex = await emitSegment(
+            seg, sentenceIndex, speechLanguage, subtitleLanguage,
+            this.character.id, onSSE
+          );
+          allVoiceTexts.push(seg.voice);
+        }
+      }
+
+      // 处理流结束后的残留 buffer
+      if (!signal?.aborted && buffer.trim()) {
+        const seg = parseSegment(buffer.trim());
+        if (seg) {
+          fullResponse += buffer.trim();
+          if (seg.needDeepThink && !roundNeedDeepThink) {
+            roundNeedDeepThink = true;
+            infoNeed = seg.subtitle || seg.voice;
+          }
+          sentenceIndex = await emitSegment(
+            seg, sentenceIndex, speechLanguage, subtitleLanguage,
+            this.character.id, onSSE
+          );
+          allVoiceTexts.push(seg.voice);
+        }
+      }
+
+      // 追加 assistant 回复到 polisher 消息列表
+      polisherMessages.push({ role: 'assistant', content: fullResponse });
+
+      // 本轮没有 needDeepThink → 结束
+      if (!roundNeedDeepThink) break;
+
+      // 首次进入深度分析时通知前端
+      if (polisherRound === 1) {
+        onSSE?.({ type: 'deep_think_pending', data: { value: true } });
+      }
+
+      // ========== 阶段4：构建/续接 analyzer 消息列表并执行子循环 ==========
+      if (analyzerMessages.length === 0) {
+        analyzerMessages = buildAnalyzerMessages(infoNeed, {
+          userInput,
+          retrievalResults: retrievalContext,
+          characterInfo,
+          skillList,
+          speechLanguage,
+          subtitleLanguage
+        });
+      } else {
+        analyzerMessages.push(
+          buildAnalyzerContinuationUser(infoNeed, allRawFindings)
+        );
+      }
+
+      const session = createAnalysisSession(analyzerMessages, signal);
+
+      while (true) {
+        if (signal?.aborted) break;
+        const result = await session.next();
+        if (signal?.aborted) break;
+
+        analyzerMessages = session.getMessages();
+
+        if (result.status === 'in_progress') {
           onSSE?.({
-            type: 'subtitle',
-            data: { text: seg.subtitle, sentenceIndex: sentenceIndex }
+            type: 'deep_think_progress',
+            data: { description: result.actionDescription }
           });
+          continue;
         }
 
-        // 立即 TTS 合成并发送 audio
-        try {
-          const audioBuffer = await synthesizeStream(seg.voice, this.character.id, seg.emotion);
-          onSSE?.({
-            type: 'audio',
-            data: { audio: audioBuffer.toString('base64'), sentenceIndex: sentenceIndex++ }
-          });
-        } catch (ttsError) {
-          logDb.insert({
-            id: uuidv4(),
-            level: 'error',
-            category: 'agent',
-            content: `[UnifiedAgent] TTS failed: ${ttsError}`,
-            createdAt: new Date()
-          });
-        }
-
-        allVoiceTexts.push(seg.voice);
+        // complete 或 max_rounds
+        allRawFindings = allRawFindings + result.rawFindings;
+        break;
       }
+
+      if (signal?.aborted) break;
+
+      // 将原始检索结果喂给 polisher 进行下一轮合成
+      polisherMessages.push(
+        buildPolisherResultUser(allRawFindings)
+      );
     }
 
-    // 处理剩余 buffer
-    if (buffer.trim()) {
-      const seg = parseSegment(buffer.trim());
-      if (seg) {
-        if (seg.needDeepThink && !needDeepThinkFlag) {
-          needDeepThinkFlag = true;
-        }
-        onSSE?.({
-          type: 'voice',
-          data: { text: seg.voice, emotion: seg.emotion, action: seg.action, language: speechLanguage, sentenceIndex: sentenceIndex }
-        });
-        if (seg.subtitle && speechLanguage !== subtitleLanguage) {
-          onSSE?.({ type: 'subtitle', data: { text: seg.subtitle, sentenceIndex: sentenceIndex } });
-        }
-        try {
-          const audioBuffer = await synthesizeStream(seg.voice, this.character.id, seg.emotion);
-          onSSE?.({ type: 'audio', data: { audio: audioBuffer.toString('base64'), sentenceIndex: sentenceIndex++ } });
-        } catch {}
-        allVoiceTexts.push(seg.voice);
-      }
-    }
+    return this.finalizeTurn(userInput, allVoiceTexts, onSSE, turnId, turnIndex);
+  }
 
-    // ========== 阶段4：深度分析（needDeepThink=true 时） ==========
-    if (needDeepThinkFlag) {
-      // 通知前端开始深度思考
-      onSSE?.({ type: 'deep_think_pending', data: { value: true } });
-
-      // 保存初次回复内容
-      const firstTurnText = allVoiceTexts.join('');
-
-      // 深度分析（纯信息检索，不负责对话）
-      const analysisResult = await runAnalysisLoop({
-        userInput,
-        retrievalResults: retrievalContext,
-        characterInfo
-      });
-
-      // Polisher 负责整合初次回复 + 分析结果，生成续接内容
-      const polisherSegments = await runPolisherLoop({
-        userInput,
-        analysisResult: analysisResult.answerText,
-        firstTurnReply: firstTurnText,
-        characterInfo,
-        dialogueRequirements,
-        availableEmotions,
-        speechLanguage,
-        subtitleLanguage
-      });
-
-      // 发送 polisher 生成的 segments
-      for (const seg of polisherSegments) {
-        onSSE?.({
-          type: 'voice',
-          data: { text: seg.voice, emotion: seg.emotion, action: seg.action, language: speechLanguage, sentenceIndex: sentenceIndex }
-        });
-
-        if (seg.subtitle && speechLanguage !== subtitleLanguage) {
-          onSSE?.({ type: 'subtitle', data: { text: seg.subtitle, sentenceIndex: sentenceIndex } });
-        }
-
-        try {
-          const audioBuffer = await synthesizeStream(seg.voice, this.character.id, seg.emotion);
-          onSSE?.({ type: 'audio', data: { audio: audioBuffer.toString('base64'), sentenceIndex: sentenceIndex++ } });
-        } catch {}
-
-        allVoiceTexts.push(seg.voice);
-      }
-    }
-
-    // ========== 完成 ==========
-    onSSE?.({ type: 'done', data: {} });
-
-    // 写入对话记录
+  private finalizeTurn(
+    userInput: string,
+    allVoiceTexts: string[],
+    onSSE: ((message: SSEMessage) => void) | undefined,
+    turnId: string,
+    turnIndex: number
+  ): string {
     const finalText = allVoiceTexts.join('');
-    const dialogue: Dialogue = {
-      id: turnId,
-      turnIndex,
-      userContent: userInput,
-      aiContent: finalText,
-      createdAt: new Date()
-    };
-    dialogueDb.insert(dialogue);
 
-    // 更新记忆
-    const shouldSwitch = await memoryManager.shouldSwitchTopic(userInput);
-    if (shouldSwitch) {
-      await memoryManager.archiveCurrentTopic();
+    onSSE?.({ type: 'done', data: { text: finalText } });
+
+    if (finalText) {
+      const dialogue: Dialogue = {
+        id: turnId,
+        turnIndex,
+        userContent: userInput,
+        aiContent: finalText,
+        createdAt: new Date()
+      };
+      dialogueDb.insert(dialogue);
+
+      memoryManager.shouldSwitchTopic(userInput).then(shouldSwitch => {
+        if (shouldSwitch) {
+          memoryManager.archiveCurrentTopic();
+        }
+      });
+      memoryManager.updateShortTermMemory(userInput, finalText);
+      this.updateStatesAsync(userInput, finalText);
     }
-    await memoryManager.updateShortTermMemory(userInput, finalText);
-    this.updateStatesAsync(userInput, finalText);
 
     return finalText;
   }
@@ -307,6 +318,46 @@ class UnifiedAgent {
   }
 }
 
-// 导出单例
+// ========== 辅助 ==========
+
+async function emitSegment(
+  seg: { voice: string; emotion: string; action: string; subtitle?: string },
+  sentenceIndex: number,
+  speechLanguage: string,
+  subtitleLanguage: string,
+  characterId: string,
+  onSSE?: (message: SSEMessage) => void
+): Promise<number> {
+  onSSE?.({
+    type: 'voice',
+    data: {
+      text: seg.voice,
+      emotion: seg.emotion,
+      action: seg.action,
+      language: speechLanguage,
+      sentenceIndex
+    }
+  });
+
+  if (seg.subtitle && speechLanguage !== subtitleLanguage) {
+    onSSE?.({
+      type: 'subtitle',
+      data: { text: seg.subtitle, sentenceIndex }
+    });
+  }
+
+  try {
+    const audioBuffer = await synthesizeStream(seg.voice, characterId, seg.emotion);
+    onSSE?.({
+      type: 'audio',
+      data: { audio: audioBuffer.toString('base64'), sentenceIndex }
+    });
+  } catch {
+    // TTS 失败不阻塞
+  }
+
+  return sentenceIndex + 1;
+}
+
 export const unifiedAgent = new UnifiedAgent();
 export default UnifiedAgent;

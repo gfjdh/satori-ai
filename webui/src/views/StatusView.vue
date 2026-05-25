@@ -72,6 +72,17 @@ function refresh() {
   loadData()
 }
 
+// 导出日志到文件
+async function flushLogs() {
+  try {
+    await logApi.flush()
+    alert('日志已导出到 data/logs/ 目录')
+  } catch (e) {
+    console.error('Failed to flush logs:', e)
+    alert('日志导出失败')
+  }
+}
+
 // 清除日志
 async function clearLogs() {
   if (!confirm('确定清除所有日志？')) return
@@ -139,6 +150,7 @@ onUnmounted(() => {
         <button @click="refresh" :disabled="isLoading">
           {{ isLoading ? '刷新中...' : '刷新' }}
         </button>
+        <button @click="flushLogs" class="btn-flush">导出日志</button>
         <button @click="clearLogs" class="btn-danger">清空日志</button>
         <button @click="clearDialogues" class="btn-danger">清空对话</button>
       </div>
@@ -361,8 +373,16 @@ onUnmounted(() => {
   background: #f44336 !important;
 }
 
+.btn-flush {
+  background: #4caf50 !important;
+}
+
 .btn-danger:hover {
   background: #d32f2f !important;
+}
+
+.btn-flush:hover {
+  background: #388e3c !important;
 }
 
 /* Overview Cards */

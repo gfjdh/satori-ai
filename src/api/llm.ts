@@ -24,7 +24,7 @@ export function getLLMConfig(): LLMConfig {
 }
 
 // 调用LLM API（统一日志记录）
-export async function callLLM(request: LLMRequest, logRequest = true): Promise<LLMResponse> {
+export async function callLLM(request: LLMRequest, logRequest = true, signal?: AbortSignal): Promise<LLMResponse> {
   const config = getLLMConfig();
 
   if (!config.apiKey) {
@@ -59,7 +59,8 @@ export async function callLLM(request: LLMRequest, logRequest = true): Promise<L
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${config.apiKey}`
       },
-      body: JSON.stringify(requestBody)
+      body: JSON.stringify(requestBody),
+      signal
     });
 
     if (!response.ok) {
@@ -116,7 +117,8 @@ export async function callLLM(request: LLMRequest, logRequest = true): Promise<L
 export async function* callLLMStream(
   request: LLMRequest,
   logRequest = true,
-  purpose = ''
+  purpose = '',
+  signal?: AbortSignal
 ): AsyncGenerator<string, void, unknown> {
   const config = getLLMConfig();
 
@@ -149,7 +151,8 @@ export async function* callLLMStream(
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${config.apiKey}`
     },
-    body: JSON.stringify(requestBody)
+    body: JSON.stringify(requestBody),
+    signal
   });
 
   if (!response.ok) {
@@ -168,6 +171,7 @@ export async function* callLLMStream(
 
   try {
     while (true) {
+      if (signal?.aborted) break;
       const { done, value } = await reader.read();
 
       if (done) break;

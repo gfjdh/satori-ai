@@ -514,12 +514,12 @@ export const logDb = {
     }));
   },
 
-  // 日志达到500条时输出到文件并清空
-  async flushToFile(): Promise<void> {
+  // 日志输出到文件并清空。force=true 时忽略500条阈值
+  async flushToFile(force: boolean = false): Promise<void> {
     const countStmt = db.prepare('SELECT COUNT(*) as count FROM logs');
     const result = countStmt.get() as { count: number };
 
-    if (result.count >= 500) {
+    if (force || result.count >= 500) {
       const logDir = path.join(dataDir, 'logs');
       if (!fs.existsSync(logDir)) {
         fs.mkdirSync(logDir, { recursive: true });

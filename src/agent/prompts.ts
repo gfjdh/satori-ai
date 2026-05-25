@@ -1,6 +1,11 @@
 /**
- * Prompt 构建函数
+ * Agent Prompt 构建器
+ *
+ * 架构：polisher 主循环 ↔ analyzer 子例程，各自维护 ChatMessage[]。
+ * 静态指令放 system 消息（KV cache 友好），动态上下文放 user 消息。
  */
+
+// ========== 类型 ==========
 
 export interface PromptContext {
   userInput: string;
@@ -13,140 +18,158 @@ export interface PromptContext {
   recentDialogues?: string;
   availableEmotions?: string[];
   skillList?: string;
-  /** 最近使用的 Skill README 缓存（用于上下文注入） */
   recentSkillsContext?: string;
   speechLanguage?: string;
   subtitleLanguage?: string;
-  /** 初次回复内容（用于续接） */
-  firstTurnReply?: string;
-  /** 深度分析结果（用于 polisher） */
-  analysisResult?: string;
 }
 
-export function buildFirstTurnPrompt(ctx: PromptContext): string {
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+// ========== 共享常量 ==========
+
+const SUBTITLE_NOTE = `## 字幕翻译
+当 speechLanguage 与 subtitleLanguage 不同时，每句话需要同时提供 subtitle 字段作为翻译。`;
+
+const AVAILABLE_ACTIONS = `可用动作：wave, nod, shake_head, happy, sad, angry, surprise, think, idle`;
+
+// ========== Polisher ==========
+
+/**
+ * 构建 polisher 初始消息列表 [system, user]。
+ * unified-agent 在此基础上一轮轮追加 assistant/user 消息。
+ */
+export function buildPolisherMessages(ctx: PromptContext): ChatMessage[] {
   const needsSubtitle = ctx.speechLanguage !== ctx.subtitleLanguage;
-  const subtitleField = needsSubtitle
-    ? `,"subtitle":"翻译文本（${ctx.subtitleLanguage}）"`
-    : '';
+  const subtitleField = needsSubtitle ? `,"subtitle":"翻译文本（${ctx.subtitleLanguage}）"` : '';
+  const hasRetrieval = ctx.retrievalResults && !ctx.retrievalResults.includes('找到: 0 条');
 
-  return `#你是角色扮演对话引擎，负责生成角色的回复。
+  const system = `# 你是角色扮演对话引擎，负责生成角色的回复。
 
-## 当前状态
-角色信息：${ctx.characterInfo}
-对话要求：${ctx.dialogueRequirements}
-情绪：${ctx.emotionDescription}
-好感度：${ctx.affinityDescription}
-对话统计：${ctx.dialogueStats}
+## 角色信息
+${ctx.characterInfo}
 
-## 预检索结果
-${ctx.retrievalResults}
+## 对话要求
+${ctx.dialogueRequirements || ''}
 
-## 最近对话
-${ctx.recentDialogues}
+## 输出格式
+将回复分成若干句，每句约15个字符。使用${ctx.speechLanguage}输出。每行一个 JSON 对象：
 
-## 用户消息
-${ctx.userInput}
+{"emotion":"情感标签","action":"动作类型","voice":"文本（${ctx.speechLanguage}，约15字）${subtitleField}}
 
-## 输出要求
-将回复分成若干句，每句约15个字符，短句应当和前后句合并。这些句子将用于语音合成，所以需要恰当切分且长度适中，并且使用${ctx.speechLanguage}输出
+## needDeepThink 规则
+- 当你的角色知识不足以回答用户问题时，**仅在首个 JSON 对象**中添加一个字段 needDeepThink=true
+- needDeepThink=true 时：用 voice/subtitle **直接说出你需要查找/回忆什么信息**
+- 接下来你的回复应该只是过渡性的，后续会补充完整
+- 如果预检索已有充足信息或你已有足够知识，直接回答（不需要添加 needDeepThink=false ）
+- needDeepThink 只在第一个 JSON 对象中输出，后续对象中禁止包含此字段
 
-**输出格式**：JSON Lines，每行一个 JSON 对象，字段如下：
+${AVAILABLE_ACTIONS}
 
-{"emotion":"情感标签","action":"动作类型","voice":"文本（${ctx.speechLanguage}，约15字）${subtitleField},"needDeepThink":true/false}
-
-## 可用情感标签
-${(ctx.availableEmotions || []).join(', ')}
-
-## 可用动作标签
-可用动作：wave, nod, shake_head, happy, sad, angry, surprise, think, idle
-
-## 其中 needDeepThink 是可选项，具体判断依据：
-- needDeepThink=true（仅在第一个对象内输出，后续不需要输出）：问题需要复杂推理、需要调用技能、需要较长回复、或需要按时间检索记忆等情况
-- needDeepThink=false（默认，为false时不需要输出）：简单问候、直接回答、闲聊
-- 如果needDeepThink=true，则本次对话的回复应当先讲一些可有可无的废话，同时必须在回答中表明你需要思考一下怎么回答。你的回复应当只是一个开头，后续会有其他程序生成最终回复。
-
-${needsSubtitle ? `## 字幕翻译
-目前 speechLanguage 与 subtitleLanguage 不同，每句话需要同时提供 subtitle 字段作为翻译。` : ''}
+${needsSubtitle ? SUBTITLE_NOTE : ''}
 
 现在开始输出，**立即输出第一行 JSON**，不要有任何前缀。`;
-}
 
-export function buildAnalysisPrompt(ctx: PromptContext): string {
-  return `# 你是角色扮演智能体的信息检索+任务执行模块的中枢控制器，负责分析用户问题并决定是否调用技能。
-
-## 执行顺序
-1. 分析用户问题，判断是否需要调用技能获取信息
-2. 如果需要技能且上下文没有对应 README：输出 SKILL_README: skill_name
-3. 上下文已有 README 时：输出 SKILL_CALL: skill_name\n{json参数}（不添加解释）
-4. 执行完技能后分析返回结果，判断是否需要更多技能
-5. **直接基于已获取的信息回答，不要重复总结已获取内容**
-
-## 上下文信息
-角色信息：${ctx.characterInfo}
-
-${ctx.recentSkillsContext ? `${ctx.recentSkillsContext}\n` : ''}
-
-## 用户消息
-${ctx.userInput}
-
-## 可用技能
-${ctx.skillList || ''}
-
-## 输出格式（需要技能时）
-SKILL_README: skill_name
-或
-SKILL_CALL: skill_name
-{"param": "value"}
-
-## 输出格式（不需要技能时）
-直接输出回答文本即可，不需要 JSON 格式，不要输出情感和动作标签。
-
-现在开始输出，**调用skill时直接输出json**，不要有任何前缀。`;
-}
-
-export function buildPolisherPrompt(ctx: PromptContext): string {
-  const needsSubtitle = ctx.speechLanguage !== ctx.subtitleLanguage;
-  const subtitleField = needsSubtitle
-    ? `,"subtitle":"翻译文本（${ctx.subtitleLanguage}）"`
-    : '';
-
-  return `# 你是角色扮演对话引擎，负责生成角色的回复。目前已经有了前半段回复内容和深度分析结果，你需要根据深度分析结果续写已有回复。
-
-## 当前状态
-角色信息：${ctx.characterInfo}
-对话要求：${ctx.dialogueRequirements || ''}
+  const user = `## 当前状态
 情绪：${ctx.emotionDescription || ''}
 好感度：${ctx.affinityDescription || ''}
 对话统计：${ctx.dialogueStats || ''}
 
+## 预检索结果
+${ctx.retrievalResults || '（无）'}
+${hasRetrieval ? '\n**以上是预检索信息，请先基于这些信息回答，如果信息已经足够使用则不需要深度分析。**' : ''}
+
 ## 最近对话
-${ctx.recentDialogues || ''}
+${ctx.recentDialogues || '（无）'}
 
 ## 用户消息
-${ctx.userInput}
+${ctx.userInput}`;
 
-## 目前已有回复（需要续写的内容）
-${ctx.firstTurnReply || ''}
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user }
+  ];
+}
 
-## 深度分析结果（需要整合到回复中的内容）
-${ctx.analysisResult || ''}
+/**
+ * 构建追加到 polisher 消息列表的 user 消息（analyzer 返回结果后）。
+ */
+export function buildPolisherResultUser(rawFindings: string): ChatMessage {
+  return {
+    role: 'user',
+    content: `## 分析结果（原始检索数据，请自行提炼关键信息并转化为角色语言）
+${rawFindings}
 
-## 输出要求
-将回复分成若干句，每句约15个字符，短句应当和前后句合并。这些句子将用于语音合成，所以需要恰当切分且长度适中，并且使用${ctx.speechLanguage}输出。
-**回复需要续写"目前已有回复"，不要重复目前已有回复的内容。**
+请基于以上信息继续回复。如果信息已充足，不要再设置 needDeepThink。输出JSON的格式与最初要求保持统一。`
+  };
+}
 
-**输出格式**：JSON Lines，每行一个 JSON 对象，字段如下：
+// ========== Analyzer ==========
 
-{"emotion":"情感标签","action":"动作类型","voice":"文本（${ctx.speechLanguage}，约15字）${subtitleField}}
+/**
+ * 构建 analyzer 初始消息列表 [system, user]。
+ * infoNeed 来自 polisher 的 subtitle（优先）或 voice 文本。
+ */
+export function buildAnalyzerMessages(
+  infoNeed: string,
+  ctx: PromptContext
+): ChatMessage[] {
+  const system = `# 你是无感情的信息检索工具执行器。
 
-## 可用情感标签
-${(ctx.availableEmotions || []).join(', ')}
+## 身份
+你不是角色，不生成对话。你的唯一职责是把 Polisher 的信息需求参数化为工具调用并执行。
 
-## 可用动作标签
-可用动作：wave, nod, shake_head, happy, sad, angry, surprise, think, idle
+## 核心规则
+1. 分析 Polisher 的信息需求，判断需要调用什么技能
+2. 如果预检索已覆盖需求，直接输出 DONE
+3. 最多执行 3 次技能调用，每次调用后判断是否已满足需求
+4. 禁止生成回答、分析或总结文本
 
-${needsSubtitle ? `## 字幕翻译
-目前 speechLanguage 与 subtitleLanguage 不同，每句话需要同时提供 subtitle 字段作为翻译。` : ''}
+## 输出格式（只能输出以下之一）
+- 需要加载技能说明：SKILL_README: skill_name
+- 需要执行技能：SKILL_CALL: skill_name\\n{"param":"value"}
+- 所有需求已满足：DONE
 
-现在开始输出，**立即输出第一行 JSON**，不要有任何前缀。`;
+**除了以上三种输出，禁止输出任何其他内容。**`;
+
+  const user = `## Polisher 需要了解
+${infoNeed}
+
+## 角色信息
+${ctx.characterInfo}
+
+## 预检索结果
+${ctx.retrievalResults || '（无）'}
+
+## 可用技能
+${ctx.skillList || ''}
+${ctx.recentSkillsContext ? `\n## 最近使用的技能参考\n${ctx.recentSkillsContext}` : ''}
+
+请判断是否需要调用技能。如果需要，输出 SKILL_README 或 SKILL_CALL。如果不需要，输出 DONE。`;
+
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user }
+  ];
+}
+
+/**
+ * 构建追加到 analyzer 消息列表的 user 消息（新一轮 polisher 信息需求）。
+ */
+export function buildAnalyzerContinuationUser(
+  infoNeed: string,
+  previousFindings: string
+): ChatMessage {
+  return {
+    role: 'user',
+    content: `## Polisher 还需要了解
+${infoNeed}
+
+## 上一次分析结果
+${previousFindings}
+
+请判断是否还需要调用技能。如果不需要，输出 DONE。`
+  };
 }
