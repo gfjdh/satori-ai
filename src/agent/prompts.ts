@@ -68,7 +68,7 @@ wave, nod, shake_head, happy, sad, angry, surprise, think, idle
  */
 export function buildPolisherMessages(ctx: PromptContext): ChatMessage[] {
   const needsSubtitle = ctx.speechLanguage !== ctx.subtitleLanguage;
-  const subtitleField = needsSubtitle ? `,"subtitle":"voice字段的翻译文本（${languageCodeToName(ctx.subtitleLanguage)}）"` : '';
+  const subtitleField = needsSubtitle ? `"subtitle":"voice字段的翻译文本（${languageCodeToName(ctx.subtitleLanguage)}）"` : '';
   const hasRetrieval = ctx.retrievalResults && !ctx.retrievalResults.includes('找到: 0 条');
 
   const system = `# 你是角色扮演对话引擎，负责生成角色的回复。

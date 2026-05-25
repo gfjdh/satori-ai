@@ -6,21 +6,122 @@ Satori Live2D 桌宠启动器
 
 import sys
 import os
-from PySide6.QtWidgets import QApplication, QMainWindow, QLabel, QMenu
+import json
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QMenu
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWebEngineCore import QWebEngineSettings
-from PySide6.QtCore import QUrl, Qt, QTimer, QEvent
-from PySide6.QtGui import QColor, QPainter, QRegion, QAction
+from PySide6.QtWebEngineCore import QWebEngineSettings, QWebEnginePage
+from PySide6.QtCore import QUrl, Qt, QEvent, QPoint
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QCursor
+
+
+POSITION_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'window_position.json')
+
+BASE_WIDTH = 400
+BASE_HEIGHT = 600
+
+
+def load_position():
+    try:
+        with open(POSITION_FILE, 'r') as f:
+            data = json.load(f)
+            return data.get('x'), data.get('y'), data.get('w', BASE_WIDTH), data.get('h', BASE_HEIGHT)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None, None, BASE_WIDTH, BASE_HEIGHT
+
+
+def save_position(x, y, w, h):
+    os.makedirs(os.path.dirname(POSITION_FILE), exist_ok=True)
+    with open(POSITION_FILE, 'w') as f:
+        json.dump({'x': x, 'y': y, 'w': w, 'h': h}, f)
+
+
+class Live2DWebPage(QWebEnginePage):
+    """拦截 JS console.log 消息，实现模型缩放→窗口缩放联动"""
+
+    def __init__(self, window, parent=None):
+        super().__init__(parent)
+        self._window = window
+
+    def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
+        if message.startswith('L2D_SCALE:'):
+            try:
+                factor = float(message.split(':')[1])
+                self._window.resize_by_factor(factor)
+            except ValueError:
+                pass
+
+
+class DragHandle(QWidget):
+    """拖动把手 — 窗口顶部可见的拖拽区域"""
+
+    def __init__(self, parent_window):
+        super().__init__(parent_window)
+        self._window = parent_window
+        self.setFixedHeight(28)
+        self.setCursor(QCursor(Qt.CursorShape.OpenHandCursor))
+        self._dragging = False
+        self._drag_start_pos = None
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        w = self.width()
+        h = self.height()
+
+        path = QPainterPath()
+        path.addRoundedRect(4, 4, w - 8, h - 8, 8, 8)
+        painter.fillPath(path, QColor(0, 0, 0, 80))
+
+        painter.setBrush(QColor(255, 255, 255, 180))
+        painter.setPen(Qt.PenStyle.NoPen)
+
+        cy = h // 2
+        dot_spacing = 10
+        dot_radius = 2.5
+        num_dots = 3
+        start_x = (w - (num_dots - 1) * dot_spacing) // 2
+
+        for i in range(num_dots):
+            x = start_x + i * dot_spacing
+            painter.drawEllipse(QPoint(x, cy), dot_radius, dot_radius)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = True
+            self._drag_start_pos = event.globalPosition().toPoint()
+            self.setCursor(QCursor(Qt.CursorShape.ClosedHandCursor))
+
+    def mouseMoveEvent(self, event):
+        if self._dragging:
+            delta = event.globalPosition().toPoint() - self._drag_start_pos
+            self._window.move(self._window.pos() + QPoint(delta.x(), delta.y()))
+            self._drag_start_pos = event.globalPosition().toPoint()
+
+    def mouseReleaseEvent(self, event):
+        if self._dragging:
+            self._dragging = False
+            self.setCursor(QCursor(Qt.CursorShape.OpenHandCursor))
+            pos = self._window.pos()
+            sz = self._window.size()
+            save_position(pos.x(), pos.y(), sz.width(), sz.height())
+
+    def enterEvent(self, event):
+        self.update()
+
+    def leaveEvent(self, event):
+        self.update()
 
 
 class Live2DViewer(QWebEngineView):
-    """自定义 WebEngineView，支持透明背景"""
+    """自定义 WebEngineView，支持透明背景和 console 拦截"""
 
-    def __init__(self, parent=None):
+    def __init__(self, window, parent=None):
         super().__init__(parent)
-        # 设置透明背景
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.page().setBackgroundColor(QColor(0, 0, 0, 0))
+        page = Live2DWebPage(window, self)
+        page.setBackgroundColor(QColor(0, 0, 0, 0))
+        self.setPage(page)
 
 
 class Live2DWindow(QMainWindow):
@@ -29,61 +130,79 @@ class Live2DWindow(QMainWindow):
     def __init__(self, url):
         super().__init__()
 
-        # 获取主屏幕尺寸
         screen = QApplication.primaryScreen()
         screen_geometry = screen.geometry()
         screen_width = screen_geometry.width()
         screen_height = screen_geometry.height()
 
-        # 窗口配置
-        window_width = 400
-        window_height = 600
+        saved_x, saved_y, saved_w, saved_h = load_position()
 
-        # 位置：右下角
-        x = screen_width - window_width - 20
-        y = screen_height - window_height - 20
+        if saved_x is not None and saved_y is not None:
+            x = saved_x
+            y = saved_y
+        else:
+            x = screen_width - BASE_WIDTH - 20
+            y = screen_height - BASE_HEIGHT - 20
 
-        self.setGeometry(x, y, window_width, window_height)
-        self.setFixedSize(window_width, window_height)
+        self._base_width = BASE_WIDTH
+        self._base_height = BASE_HEIGHT
 
-        # 无边框、置顶、背景透明
+        self.setGeometry(x, y, saved_w, saved_h)
+        self.setMinimumSize(200, 300)
+        self.setMaximumSize(screen_width, screen_height)
+
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
-        # 创建 WebView
-        self.web_view = Live2DViewer(self)
-        self.setCentralWidget(self.web_view)
+        central = QWidget(self)
+        central.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        layout = QVBoxLayout(central)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        # 禁用 WebView 原生右键菜单
+        self.drag_handle = DragHandle(self)
+        layout.addWidget(self.drag_handle)
+
+        self.web_view = Live2DViewer(self, central)
+        layout.addWidget(self.web_view)
+
+        self.setCentralWidget(central)
+
         self.web_view.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
-
-        # 安装事件过滤器，捕获 WebView 的右键事件
         self.web_view.installEventFilter(self)
 
-        # 配置 WebEngine
         settings = self.web_view.settings()
         settings.setAttribute(QWebEngineSettings.WebAttribute.ShowScrollBars, False)
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
 
-        # 加载页面
         self.web_view.load(QUrl(url))
 
         print(f'桌宠加载中: {url}')
         self.web_view.loadFinished.connect(self.on_load_finished)
 
+    def resize_by_factor(self, factor):
+        current = self.size()
+        new_w = int(current.width() * factor)
+        new_h = int(current.height() * factor)
+
+        min_w, max_w = 200, self.maximumWidth()
+        min_h, max_h = 300, self.maximumHeight()
+
+        if min_w <= new_w <= max_w and min_h <= new_h <= max_h:
+            self.resize(new_w, new_h)
+            pos = self.pos()
+            save_position(pos.x(), pos.y(), new_w, new_h)
+
     def eventFilter(self, obj, event):
-        """拦截子组件的右键事件"""
         if event.type() == QEvent.Type.ContextMenu and obj is self.web_view:
             self.show_context_menu(event.globalPos())
             return True
         return super().eventFilter(obj, event)
 
     def show_context_menu(self, global_pos):
-        """显示右键菜单"""
         menu = QMenu(self)
 
         menu.addAction('打开管理页面', self.open_admin_page)
@@ -100,17 +219,6 @@ class Live2DWindow(QMainWindow):
             print('页面加载完成')
         else:
             print('页面加载失败', file=sys.stderr)
-
-    def mousePressEvent(self, event):
-        """支持拖动窗口"""
-        self._start_pos = event.globalPosition().toPoint()
-
-    def mouseMoveEvent(self, event):
-        """拖动时移动窗口"""
-        if hasattr(self, '_start_pos'):
-            delta = event.globalPosition().toPoint() - self._start_pos
-            self.move(self.pos() + delta)
-            self._start_pos = event.globalPosition().toPoint()
 
     def open_admin_page(self):
         import webbrowser
@@ -129,6 +237,9 @@ class Live2DWindow(QMainWindow):
         print('设置互动频率待实现')
 
     def close_app(self):
+        pos = self.pos()
+        sz = self.size()
+        save_position(pos.x(), pos.y(), sz.width(), sz.height())
         QApplication.quit()
 
 
@@ -136,7 +247,6 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName('Satori Live2D')
 
-    # 后端 URL
     LIVE2D_URL = os.environ.get('LIVE2D_URL', 'http://localhost:3000/live2d')
 
     window = Live2DWindow(LIVE2D_URL)

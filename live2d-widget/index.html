@@ -22,9 +22,12 @@
             width: 100vw;
             height: 100vh;
         }
+        :root {
+            --window-scale: 1;
+        }
         #subtitle-container {
             position: fixed;
-            bottom: 120px;
+            bottom: calc(120px * var(--window-scale));
             left: 50%;
             transform: translateX(-50%);
             max-width: 80%;
@@ -33,30 +36,37 @@
         }
         #subtitle-text {
             font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
-            font-size: 16px;
+            font-size: calc(16px * var(--window-scale));
             color: #fff;
             text-shadow: 0 0 10px rgba(0,0,0,0.8), 0 0 20px rgba(0,0,0,0.6);
-            padding: 8px 16px;
+            padding: calc(8px * var(--window-scale)) calc(16px * var(--window-scale));
             background: rgba(0,0,0,0.3);
-            border-radius: 20px;
+            border-radius: calc(20px * var(--window-scale));
             display: inline-block;
             line-height: 1.4;
         }
         #chat-container {
             position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 300px;
+            bottom: calc(20px * var(--window-scale));
+            right: calc(20px * var(--window-scale));
+            width: calc(300px * var(--window-scale));
             display: flex;
-            gap: 8px;
+            gap: calc(8px * var(--window-scale));
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        body:hover #chat-container {
+            opacity: 1;
+            pointer-events: auto;
         }
         #chat-input {
             flex: 1;
-            padding: 12px 16px;
+            padding: calc(12px * var(--window-scale)) calc(16px * var(--window-scale));
             border: none;
-            border-radius: 20px;
+            border-radius: calc(20px * var(--window-scale));
             background: rgba(255,255,255,0.9);
-            font-size: 14px;
+            font-size: calc(14px * var(--window-scale));
             outline: none;
             color: #333;
         }
@@ -64,12 +74,12 @@
             color: #999;
         }
         #chat-send-btn {
-            padding: 12px 20px;
+            padding: calc(12px * var(--window-scale)) calc(20px * var(--window-scale));
             border: none;
-            border-radius: 20px;
+            border-radius: calc(20px * var(--window-scale));
             background: #ff69b4;
             color: #fff;
-            font-size: 14px;
+            font-size: calc(14px * var(--window-scale));
             cursor: pointer;
             transition: background 0.2s;
         }

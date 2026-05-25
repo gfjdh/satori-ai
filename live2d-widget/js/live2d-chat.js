@@ -18,6 +18,15 @@
     let streamingTimer = null;
     let streamingSentenceIndex = -1;
     let isStreamDone = false;
+    let subtitleClearTimer = null;
+
+    function resetSubtitleClearTimer() {
+        if (subtitleClearTimer) clearTimeout(subtitleClearTimer);
+        subtitleClearTimer = setTimeout(function() {
+            var el = document.getElementById('subtitle-text');
+            if (el) el.textContent = '';
+        }, 3000);
+    }
 
     // 获取结束标点类型
     function getEndPunctuation(text) {
@@ -104,6 +113,7 @@
             } else {
                 streamingTimer = null;
                 streamingSentenceIndex = -1;
+                resetSubtitleClearTimer();
                 processSubtitleQueue();
             }
         }
@@ -210,12 +220,14 @@
                                 const subData = JSON.parse(data);
                                 const text = (subData.text || '').replace(/\[ACTION:[^\]]+\]/g, '');
                                 const sentenceIndex = subData.sentenceIndex || 0;
+                                resetSubtitleClearTimer();
                                 startStreamingText(text, sentenceIndex);
                             } catch (e) { console.error('subtitle parse error:', e); }
                         } else if (eventType === 'subtitle_extra') {
                             try {
                                 const subData = JSON.parse(data);
                                 if (subtitleEl) subtitleEl.textContent += subData.text || '';
+                                resetSubtitleClearTimer();
                             } catch (e) { console.error('subtitle_extra parse error:', e); }
                         } else if (eventType === 'audio') {
                             try {

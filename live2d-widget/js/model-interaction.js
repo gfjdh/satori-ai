@@ -1,5 +1,6 @@
 // model-interaction.js - 模型交互控制器
 // 处理拖动、缩放、点击等交互
+// 模型缩放和窗口缩放彻底分离：鼠标在模型上→缩模，空白处→缩窗
 
 class ModelInteractionController {
     constructor() {
@@ -7,17 +8,41 @@ class ModelInteractionController {
         this.app = null;
         this.isDragging = false;
         this.dragOffset = { x: 0, y: 0 };
+
+        this._nativeWidth = 0;
+        this._nativeHeight = 0;
+        this._fitScale = 1.0;
+        this._modelZoom = 1.0;
+        this._scaleMultiplier = 2.3;
+        this._offsetX = 0;
+        this._offsetY = 0;
     }
 
     init(model, app) {
         this.model = model;
         this.app = app;
+        this._nativeWidth = model.width;
+        this._nativeHeight = model.height;
         this.setupInteractivity();
+    }
+
+    _recalcFitScale() {
+        const sx = (window.innerWidth * this._scaleMultiplier) / this._nativeWidth;
+        const sy = (window.innerHeight * this._scaleMultiplier) / this._nativeHeight;
+        this._fitScale = Math.min(sx, sy);
+    }
+
+    _applyModelScale() {
+        this.model.scale.set(this._fitScale * this._modelZoom);
+    }
+
+    _centerModel() {
+        this.model.x = window.innerWidth / 2 - this.model.width / 2 + this._offsetX;
+        this.model.y = window.innerHeight * 0.6 + this._offsetY;
     }
 
     updateInteractionArea() {
         if (!this.model) return;
-        // 交互区域为模型中央偏下区域
         this.interactionWidth = this.model.width / 3;
         this.interactionHeight = this.model.height * 0.7;
         this.interactionX = this.model.x + (this.model.width - this.interactionWidth) / 2;
@@ -29,7 +54,6 @@ class ModelInteractionController {
 
         this.model.interactive = true;
 
-        // 自定义碰撞检测
         this.model.containsPoint = (point) => {
             if (!this.model) return false;
             const bounds = this.getInteractionBounds();
@@ -39,7 +63,6 @@ class ModelInteractionController {
                 point.y <= bounds.y + bounds.height;
         };
 
-        // 鼠标按下 - 开始拖动
         this.model.on('mousedown', (e) => {
             if (this.model.containsPoint(e.data.global)) {
                 this.isDragging = true;
@@ -48,7 +71,6 @@ class ModelInteractionController {
             }
         });
 
-        // 鼠标移动 - 拖动模型
         this.model.on('mousemove', (e) => {
             if (this.isDragging) {
                 this.model.x = e.data.global.x - this.dragOffset.x;
@@ -57,7 +79,6 @@ class ModelInteractionController {
             }
         });
 
-        // 鼠标释放 - 停止拖动并保存位置
         window.addEventListener('mouseup', () => {
             if (this.isDragging) {
                 this.isDragging = false;
@@ -65,7 +86,6 @@ class ModelInteractionController {
             }
         });
 
-        // 点击事件 - 触发动作
         this.model.on('click', () => {
             if (this.model && this.model.internalModel) {
                 try {
@@ -77,47 +97,83 @@ class ModelInteractionController {
             }
         });
 
-        // 滚轮缩放
+        // 统一 wheel 处理：模型上→缩模，空白处→缩窗
         window.addEventListener('wheel', (e) => {
             if (!this.model) return;
-            if (this.model.containsPoint(this.app.renderer.plugins.interaction.mouse.global)) {
-                e.preventDefault();
-                const scaleChange = e.deltaY > 0 ? 0.9 : 1.1;
-                const currentScale = this.model.scale.x;
-                const newScale = currentScale * scaleChange;
 
-                // 限制缩放范围
-                const minScale = currentScale * 0.3;
-                const maxScale = currentScale * 3.0;
-                if (newScale >= minScale && newScale <= maxScale) {
-                    this.model.scale.set(newScale);
-                    // 保持中心点不变
-                    const deltaWidth = this.model.width - (this.model.width / scaleChange);
-                    const deltaHeight = this.model.height - (this.model.height / scaleChange);
-                    this.model.x -= deltaWidth / 2;
-                    this.model.y -= deltaHeight / 2;
-                    this.updateInteractionArea();
-                }
+            const mousePos = this.app.renderer.plugins.interaction.mouse.global;
+            const onModel = this.model.containsPoint(mousePos);
+
+            if (onModel) {
+                this._handleModelZoom(e);
+            } else {
+                this._handleWindowZoom(e);
             }
         }, { passive: false });
 
-        // 窗口大小改变
+        // 窗口大小改变 → 重算 fitScale，模型和对话框跟随
         window.addEventListener('resize', () => {
             if (this.app && this.app.renderer) {
                 this.app.renderer.resize(window.innerWidth * 2, window.innerHeight * 2);
                 this.app.stage.position.set(window.innerWidth / 2, window.innerHeight / 2);
                 this.app.stage.pivot.set(window.innerWidth / 2, window.innerHeight / 2);
+
+                const oldWidth = this.model.width;
+                const oldHeight = this.model.height;
+                this._recalcFitScale();
+                this._applyModelScale();
+                this.model.x += (this.model.width - oldWidth) / 2;
+                this.model.y += (this.model.height - oldHeight) / 2;
+
                 this.updateInteractionArea();
+                updateDialogScale();
+                saveModelPosition(this.model);
             }
         });
 
-        // 禁用右键菜单
         window.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             return false;
         });
 
         this.updateInteractionArea();
+    }
+
+    _handleModelZoom(e) {
+        e.preventDefault();
+        const zoomStep = 0.1;
+        const oldZoom = this._modelZoom;
+        const newZoom = e.deltaY > 0
+            ? Math.max(0.3, oldZoom - zoomStep)
+            : Math.min(3.0, oldZoom + zoomStep);
+
+        if (newZoom !== oldZoom) {
+            this._modelZoom = newZoom;
+
+            const oldWidth = this.model.width;
+            const oldHeight = this.model.height;
+            this._applyModelScale();
+            this.model.x -= (this.model.width - oldWidth) / 2;
+            this.model.y -= (this.model.height - oldHeight) / 2;
+            this.updateInteractionArea();
+        }
+    }
+
+    _handleWindowZoom(e) {
+        e.preventDefault();
+        const zoomStep = 0.1;
+        // 使用独立计数器确保因子精确互为倒数
+        if (!this._windowZoomCounter) this._windowZoomCounter = 1.0;
+        const oldZoom = this._windowZoomCounter;
+        const newZoom = e.deltaY > 0
+            ? Math.max(0.3, oldZoom - zoomStep)
+            : Math.min(3.0, oldZoom + zoomStep);
+
+        if (newZoom !== oldZoom) {
+            const factor = newZoom / oldZoom;
+            this._windowZoomCounter = newZoom;
+            console.log('L2D_SCALE:' + factor);
+        }
     }
 
     getInteractionBounds() {
@@ -135,15 +191,15 @@ class ModelInteractionController {
     setupInitialModelProperties(scaleMultiplier = 2.3, offsetX = 0, offsetY = 0) {
         if (!this.model || !this.app) return;
 
-        // 根据窗口大小计算初始缩放
-        const scaleX = (window.innerWidth * scaleMultiplier) / this.model.width;
-        const scaleY = (window.innerHeight * scaleMultiplier) / this.model.height;
-        this.model.scale.set(Math.min(scaleX, scaleY));
+        this._scaleMultiplier = scaleMultiplier;
+        this._offsetX = offsetX;
+        this._offsetY = offsetY;
 
-        // 默认位置 - 窗口中央偏下
-        this.model.x = window.innerWidth / 2 - this.model.width / 2 + offsetX;
-        this.model.y = window.innerHeight * 0.6 + offsetY;
-
+        this._recalcFitScale();
+        this._modelZoom = 1.0;
+        this._windowZoomCounter = 1.0;
+        this._applyModelScale();
+        this._centerModel();
         this.updateInteractionArea();
     }
 }

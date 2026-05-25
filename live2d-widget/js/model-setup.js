@@ -66,8 +66,16 @@ async function initializeModel() {
         window.live2dController = controller;
         window.live2dModel = model;
 
-        // 6. 恢复保存的位置
-        restoreModelPosition(model, controller);
+        // 6. 恢复保存的位置和缩放
+        restoreModelState(model, controller);
+
+        // 7. 初始化对话框缩放
+        updateDialogScale();
+
+        // 8. 退出前保存最新状态
+        window.addEventListener('beforeunload', function() {
+            saveModelPosition(model);
+        });
 
         loadingEl.style.display = 'none';
         console.log('Live2D模型加载完成');
@@ -83,17 +91,32 @@ async function initializeModel() {
     }
 }
 
-// 从localStorage恢复模型位置
-function restoreModelPosition(model, controller) {
-    const saved = localStorage.getItem('live2d_model_position');
+// 按比例保存模型位置和缩放
+function saveModelPosition(model) {
+    var ctrl = window.live2dController;
+    var pos = {
+        x: model.x / window.innerWidth,
+        y: model.y / window.innerHeight,
+        mz: ctrl ? ctrl._modelZoom : 1.0
+    };
+    localStorage.setItem('live2d_model_position', JSON.stringify(pos));
+}
+
+// 按比例恢复模型位置和缩放
+function restoreModelState(model, controller) {
+    var saved = localStorage.getItem('live2d_model_position');
     if (saved) {
         try {
-            const pos = JSON.parse(saved);
+            var pos = JSON.parse(saved);
             if (pos.x !== null && pos.y !== null) {
-                model.x = pos.x;
-                model.y = pos.y;
+                model.x = pos.x * window.innerWidth;
+                model.y = pos.y * window.innerHeight;
+
+                if (pos.mz !== undefined) {
+                    controller._modelZoom = pos.mz;
+                    controller._applyModelScale();
+                }
                 controller.updateInteractionArea();
-                console.log('恢复模型位置:', pos);
             }
         } catch (e) {
             console.warn('恢复位置失败:', e);
@@ -101,11 +124,11 @@ function restoreModelPosition(model, controller) {
     }
 }
 
-// 保存模型位置到localStorage
-function saveModelPosition(model) {
-    const pos = { x: model.x, y: model.y };
-    localStorage.setItem('live2d_model_position', JSON.stringify(pos));
-    console.log('保存模型位置:', pos);
+// 根据窗口大小更新对话框和字幕的缩放比例
+function updateDialogScale() {
+    var baseWidth = 400;
+    var scale = window.innerWidth / baseWidth;
+    document.documentElement.style.setProperty('--window-scale', scale);
 }
 
 // 启动
