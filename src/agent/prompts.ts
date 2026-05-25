@@ -26,6 +26,7 @@ function languageCodeToName(code?: string): string {
 export interface PromptContext {
   userInput: string;
   retrievalResults?: string;
+  visualContext?: string;
   characterInfo: string;
   dialogueRequirements?: string;
   emotionDescription?: string;
@@ -82,9 +83,9 @@ ${ctx.dialogueRequirements || ''}
 }
 
 ## needDeepThink 规则：{
-- 若当前上下文中的信息不足以回答用户问题时，**仅在首个 JSON 对象**中添加一个字段 needDeepThink=true
-- needDeepThink=true 时：你的回复应该加几个过渡句，看上去就像在思考，并且在 voice/subtitle 的内容中 **应当包含你需要查找/回忆什么信息**（这个将会传递给分析器）
-- 若当前上下文中已有足够信息，直接回答即可（needDeepThink字段缺省即可，不需要添加 needDeepThink=false ）
+- 若预检索结果中的信息不足以回答用户问题（例如提到未知概念或者涉及未召回的记忆），或者需要执行复杂任务时，**仅在首个 JSON 对象**中添加一个字段 needDeepThink=true
+- needDeepThink=true 时：在本句 voice/subtitle 的内容中 **应当包含你需要查找/回忆什么信息**（这个将会传递给分析器），后面几个句子则应该类似过渡句，体现你正在处理问题的状态。
+- 若不需要深度分析，直接回答即可（needDeepThink字段缺省即可，不需要添加 needDeepThink=false ）
 - needDeepThink 只在第一个 JSON 对象中输出，后续对象中禁止包含此字段
 }
 
@@ -107,6 +108,8 @@ ${needsSubtitle ? SUBTITLE_NOTE : ''}
 ${ctx.retrievalResults || '（无）'}
 ${hasRetrieval ? '\n**以上是预检索信息，请先基于这些信息回答，如果信息已经足够使用则不需要深度分析。**' : ''}
 }
+
+${ctx.visualContext ? "## 当前屏幕内容（仅在识别出乱码时启用needDeepThink）：{\n" + ctx.visualContext + "\n}" : ''}
 
 ## 最近对话：{
 ${ctx.recentDialogues || '（无）'}
@@ -158,6 +161,7 @@ export function buildAnalyzerMessages(
 1. 分析 Polisher 的信息需求，判断需要调用什么技能
 2. 如果预检索已覆盖需求，直接输出 DONE
 3. 禁止生成回答、分析或总结文本
+4. 在使用技能前，若当前技能说明未加载，必须先输出 SKILL_README: skill_name 来加载技能说明
 }
 
 ## 输出格式（只能输出以下之一）：{

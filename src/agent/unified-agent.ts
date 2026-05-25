@@ -70,6 +70,20 @@ class UnifiedAgent {
       return this.finalizeTurn(userInput, allVoiceTexts, onSSE, turnId, turnIndex);
     }
 
+    // ========== 阶段1.5：触发词匹配 ==========
+    let visualContext = '';
+    const triggeredSkills = skillEngine.matchTriggerSkills(userInput);
+    for (const skill of triggeredSkills) {
+      const result = await skillEngine.executeSkill(skill.name, {});
+      if (result && skill.name === 'image-analysis') {
+        visualContext = result;
+      }
+    }
+
+    if (signal?.aborted) {
+      return this.finalizeTurn(userInput, allVoiceTexts, onSSE, turnId, turnIndex);
+    }
+
     // ========== 阶段2：构建 polisher 初始消息列表 ==========
     const recentText = getRecentDialoguesText(20);
     const memoryContext = memoryManager.buildRecentContext();
@@ -77,6 +91,7 @@ class UnifiedAgent {
     const polisherMessages: ChatMessage[] = buildPolisherMessages({
       userInput,
       retrievalResults: retrievalContext,
+      visualContext,
       characterInfo,
       dialogueRequirements,
       emotionDescription: stateManager.getEmotionDescription(),
@@ -173,11 +188,13 @@ class UnifiedAgent {
 
       // ========== 阶段4：构建/续接 analyzer 消息列表并执行子循环 ==========
       if (analyzerMessages.length === 0) {
+        const recentSkillsContext = await skillEngine.getRecentSkillsContext();
         analyzerMessages = buildAnalyzerMessages(infoNeed, {
           userInput,
           retrievalResults: retrievalContext,
           characterInfo,
           skillList,
+          recentSkillsContext,
           recentDialogues: combinedContext,
           speechLanguage,
           subtitleLanguage

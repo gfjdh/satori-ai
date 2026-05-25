@@ -81,6 +81,7 @@ export interface SkillMeta {
   description: string;
   version?: string;
   author?: string;
+  triggerWords?: string[];
 }
 
 // Skill加载后的完整信息

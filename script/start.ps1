@@ -11,6 +11,7 @@ $backendPort = 3000
 $webuiPort = 5173
 $ttsPort = 5030
 $embeddingPort = 7860
+$imagePort = 8742
 
 function Show-Menu {
     Write-Host ""
@@ -23,6 +24,7 @@ function Show-Menu {
     Write-Host "  [3] TTS          (port $ttsPort)" -ForegroundColor White
     Write-Host "  [4] Embedding    (port $embeddingPort)" -ForegroundColor White
     Write-Host "  [5] Live2D      (system Python)" -ForegroundColor White
+    Write-Host "  [6] Image        (port $imagePort)" -ForegroundColor White
     Write-Host "  [A] All Services" -ForegroundColor Yellow
     Write-Host "  [K] Stop All Services" -ForegroundColor Red
     Write-Host "  [Q] Quit" -ForegroundColor Red
@@ -103,6 +105,26 @@ function Start-Embedding-Service {
     Write-Host " OK (running in background job)" -ForegroundColor Green
 }
 
+function Start-Image-Service {
+    Write-Host "[Start] Image Service (port $imagePort)..." -NoNewline
+
+    $imgPath = Join-Path $projectRoot "image-service"
+    if (-not (Test-Path "$imgPath\venv\Scripts\python.exe")) {
+        Write-Host ""
+        Write-Host "  Image venv not found. Run image\01_setup_env.bat first." -ForegroundColor Red
+        return
+    }
+
+    $job = Start-Job -ScriptBlock {
+        param($path, $port)
+        Set-Location $path
+        & ".\venv\Scripts\python.exe" -m uvicorn app:app --host 0.0.0.0 --port $port
+    } -ArgumentList $imgPath, $imagePort
+
+    Start-Sleep 2
+    Write-Host " OK (running in background job)" -ForegroundColor Green
+}
+
 function Start-Live2D-Service {
     Write-Host "[Start] Live2D Launcher (system Python)..." -NoNewline
 
@@ -164,6 +186,7 @@ function Start-All-Services {
     Start-WebUI-Service
     Start-TTS-Service
     Start-Embedding-Service
+    Start-Image-Service
     Start-Live2D-Service
 
     Write-Host ""
@@ -175,6 +198,7 @@ function Start-All-Services {
     Write-Host "  WebUI:      http://localhost:$webuiPort" -ForegroundColor White
     Write-Host "  TTS API:    http://localhost:$ttsPort/api" -ForegroundColor White
     Write-Host "  Embedding:  http://localhost:$embeddingPort" -ForegroundColor White
+    Write-Host "  Image:      http://localhost:$imagePort" -ForegroundColor White
     Write-Host ""
 }
 
@@ -185,6 +209,7 @@ switch ($service.ToLower()) {
     "tts" { Start-TTS-Service }
     "embedding" { Start-Embedding-Service }
     "live2d" { Start-Live2D-Service }
+    "image" { Start-Image-Service }
     "all" { Start-All-Services }
     "menu" {
         while ($true) {
@@ -201,6 +226,8 @@ switch ($service.ToLower()) {
                 "embedding" { Start-Embedding-Service }
                 "5" { Start-Live2D-Service }
                 "live2d" { Start-Live2D-Service }
+                "6" { Start-Image-Service }
+                "image" { Start-Image-Service }
                 "a" { Start-All-Services }
                 "all" { Start-All-Services }
                 "k" { Stop-All-Services }
@@ -214,7 +241,7 @@ switch ($service.ToLower()) {
         }
     }
     default {
-        Write-Host "Usage: .\start.ps1 [-service <backend|webui|tts|embedding|live2d|all|menu>]" -ForegroundColor Yellow
+        Write-Host "Usage: .\start.ps1 [-service <backend|webui|tts|embedding|image|live2d|all|menu>]" -ForegroundColor Yellow
         Write-Host "  No service specified - showing menu" -ForegroundColor Gray
         & $PSCommandPath -service menu
     }

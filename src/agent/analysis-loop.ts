@@ -104,7 +104,7 @@ export function createAnalysisSession(
       }
 
       // SKILL_README
-      const readmeMatch = fullResponse.match(/SKILL_README:\s*(\w+)/);
+      const readmeMatch = fullResponse.match(/SKILL_README:\s*([\w-]+)/);
       if (readmeMatch) {
         const skillName = readmeMatch[1];
         const skill = await skillEngine.loadSkill(skillName);
@@ -125,7 +125,7 @@ export function createAnalysisSession(
 
       // SKILL_CALL
       const skillCallMatch = fullResponse.match(
-        /SKILL_CALL:\s*(\w+)\s*\n([\s\S]*?)(?=SKILL_CALL:|SKILL_README:|DONE|$)/
+        /SKILL_CALL:\s*([\w-]+)\s*\n([\s\S]*?)(?=SKILL_CALL:|SKILL_README:|DONE|$)/
       );
       if (skillCallMatch) {
         const skillName = skillCallMatch[1];

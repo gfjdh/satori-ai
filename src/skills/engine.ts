@@ -30,6 +30,7 @@ interface ParsedSkillMeta {
   description: string;
   version?: string;
   author?: string;
+  triggerWords?: string[];
 }
 
 // ========== Skill引擎 ==========
@@ -83,6 +84,7 @@ class SkillEngine {
     let description = '';
     let version: string | undefined;
     let author: string | undefined;
+    let triggerWords: string[] | undefined;
 
     let inFrontmatter = false;
 
@@ -97,12 +99,17 @@ class SkillEngine {
         if (line.startsWith('name:')) {
           name = line.substring(5).trim();
         } else if (line.startsWith('description:')) {
-          // 处理 >- 多行描述
           description = line.substring(12).trim();
         } else if (line.startsWith('version:')) {
           version = line.substring(8).trim();
         } else if (line.startsWith('author:')) {
           author = line.substring(7).trim();
+        } else if (line.startsWith('triggerWords:')) {
+          const raw = line.substring(13).trim();
+          const match = raw.match(/\[([^\]]*)\]/);
+          if (match) {
+            triggerWords = match[1].split(',').map(w => w.trim()).filter(w => w.length > 0);
+          }
         }
       }
     }
@@ -114,12 +121,25 @@ class SkillEngine {
 
     if (!name) return null;
 
-    return { name, description, version, author };
+    return { name, description, version, author, triggerWords };
   }
 
   // 获取所有skill的元信息（启动时使用）
   getAllSkillMetas(): SkillMeta[] {
     return Array.from(this.skills.values());
+  }
+
+  // 根据用户输入匹配触发词，返回命中的SkillMeta列表
+  matchTriggerSkills(userInput: string): SkillMeta[] {
+    const matched: SkillMeta[] = [];
+    for (const skill of this.skills.values()) {
+      if (skill.triggerWords && skill.triggerWords.length > 0) {
+        if (skill.triggerWords.some(w => userInput.includes(w))) {
+          matched.push(skill);
+        }
+      }
+    }
+    return matched;
   }
 
   // 根据名称获取skill元信息
