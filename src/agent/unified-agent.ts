@@ -51,7 +51,7 @@ class UnifiedAgent {
     });
 
     const config = getLLMConfig();
-    const speechLanguage = this.character.speechLanguage || 'ja';
+    const speechLanguage = this.character.speechLanguage || 'ja-JP';
     const subtitleLanguage = this.character.subtitleLanguage || 'zh-CN';
     const availableEmotions = getAvailableEmotions(this.character.id);
     const characterInfo = this.character.characterInfo || this.character.personality || '';

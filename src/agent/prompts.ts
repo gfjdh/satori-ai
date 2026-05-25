@@ -5,6 +5,22 @@
  * 静态指令放 system 消息（KV cache 友好），动态上下文放 user 消息。
  */
 
+// ========== 工具函数 ==========
+
+const LANGUAGE_CODE_MAP: Record<string, string> = {
+  'ja-JP': '日本語',  'ja': '日本語',  'zh-CN': '中文(简体)',  'zh-TW': '中文(繁體)',
+  'zh': '中文(简体)',  'en-US': 'English',  'en': 'English',  'ko-KR': '한국어',
+  'ko': '한국어',  'fr-FR': 'Français',  'fr': 'Français',  'de-DE': 'Deutsch',
+  'de': 'Deutsch',  'es-ES': 'Español',  'es': 'Español',  'ru-RU': 'Русский',  'ru': 'Русский',};
+
+function languageCodeToName(code?: string): string {
+  if (!code) return '';
+  if (LANGUAGE_CODE_MAP[code]) return LANGUAGE_CODE_MAP[code];
+  const prefix = code.split('-')[0].toLowerCase();
+  if (LANGUAGE_CODE_MAP[prefix]) return LANGUAGE_CODE_MAP[prefix];
+  return code;
+}
+
 // ========== 类型 ==========
 
 export interface PromptContext {
@@ -43,7 +59,7 @@ const AVAILABLE_ACTIONS = `可用动作：wave, nod, shake_head, happy, sad, ang
  */
 export function buildPolisherMessages(ctx: PromptContext): ChatMessage[] {
   const needsSubtitle = ctx.speechLanguage !== ctx.subtitleLanguage;
-  const subtitleField = needsSubtitle ? `,"subtitle":"翻译文本（${ctx.subtitleLanguage}）"` : '';
+  const subtitleField = needsSubtitle ? `,"subtitle":"voice字段的翻译文本（${languageCodeToName(ctx.subtitleLanguage)}）"` : '';
   const hasRetrieval = ctx.retrievalResults && !ctx.retrievalResults.includes('找到: 0 条');
 
   const system = `# 你是角色扮演对话引擎，负责生成角色的回复。
@@ -51,20 +67,22 @@ export function buildPolisherMessages(ctx: PromptContext): ChatMessage[] {
 ## 角色信息
 ${ctx.characterInfo}
 
-## 对话要求
+## 角色对话要求
 ${ctx.dialogueRequirements || ''}
 
 ## 输出格式
-将回复分成若干句，每句约15个字符。使用${ctx.speechLanguage}输出。每行一个 JSON 对象：
-
-{"emotion":"情感标签","action":"动作类型","voice":"文本（${ctx.speechLanguage}，约15字）${subtitleField}}
+将回复分成若干句，每句约15个字符。使用${languageCodeToName(ctx.speechLanguage)}输出。每行一个 JSON 对象：
+{"emotion":"情感标签","action":"动作类型","voice":"${languageCodeToName(ctx.speechLanguage)}，约15字",${subtitleField},"needDeepThink":true/缺省}
+注意：其中 voice 字段必须使用 ${languageCodeToName(ctx.speechLanguage)} 输出。
 
 ## needDeepThink 规则
-- 当你的角色知识不足以回答用户问题时，**仅在首个 JSON 对象**中添加一个字段 needDeepThink=true
-- needDeepThink=true 时：用 voice/subtitle **直接说出你需要查找/回忆什么信息**
-- 接下来你的回复应该只是过渡性的，后续会补充完整
-- 如果预检索已有充足信息或你已有足够知识，直接回答（不需要添加 needDeepThink=false ）
+- 当预检索的信息不足以回答用户问题时，**仅在首个 JSON 对象**中添加一个字段 needDeepThink=true
+- needDeepThink=true 时：，你的回复应该加几个过渡句，看上去就像在思考，并且在 voice/subtitle 的内容中 **应当包含你需要查找/回忆什么信息**（这个将会传递给分析器）
+- 如果预检索已有充足信息或你已有足够知识，直接回答（缺省即可，不需要添加 needDeepThink=false ）
 - needDeepThink 只在第一个 JSON 对象中输出，后续对象中禁止包含此字段
+
+## 可用情感标签
+${(ctx.availableEmotions || []).join(', ')}
 
 ${AVAILABLE_ACTIONS}
 
@@ -74,7 +92,7 @@ ${needsSubtitle ? SUBTITLE_NOTE : ''}
 
   const user = `## 当前状态
 情绪：${ctx.emotionDescription || ''}
-好感度：${ctx.affinityDescription || ''}
+关系：${ctx.affinityDescription || ''}
 对话统计：${ctx.dialogueStats || ''}
 
 ## 预检索结果
@@ -129,7 +147,8 @@ export function buildAnalyzerMessages(
 
 ## 输出格式（只能输出以下之一）
 - 需要加载技能说明：SKILL_README: skill_name
-- 需要执行技能：SKILL_CALL: skill_name\\n{"param":"value"}
+- 需要执行技能：SKILL_CALL: skill_name
+{"param":"value"}
 - 所有需求已满足：DONE
 
 **除了以上三种输出，禁止输出任何其他内容。**`;
@@ -145,7 +164,7 @@ ${ctx.retrievalResults || '（无）'}
 
 ## 可用技能
 ${ctx.skillList || ''}
-${ctx.recentSkillsContext ? `\n## 最近使用的技能参考\n${ctx.recentSkillsContext}` : ''}
+${ctx.recentSkillsContext ? `\n## 当前已加载的skill readme：\n${ctx.recentSkillsContext}` : ''}
 
 请判断是否需要调用技能。如果需要，输出 SKILL_README 或 SKILL_CALL。如果不需要，输出 DONE。`;
 
