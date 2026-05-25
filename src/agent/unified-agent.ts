@@ -72,6 +72,8 @@ class UnifiedAgent {
 
     // ========== 阶段2：构建 polisher 初始消息列表 ==========
     const recentText = getRecentDialoguesText(20);
+    const memoryContext = memoryManager.buildRecentContext();
+    const combinedContext = [memoryContext, recentText].filter(Boolean).join('\n\n');
     const polisherMessages: ChatMessage[] = buildPolisherMessages({
       userInput,
       retrievalResults: retrievalContext,
@@ -80,7 +82,7 @@ class UnifiedAgent {
       emotionDescription: stateManager.getEmotionDescription(),
       affinityDescription: stateManager.getAffinityDescription(),
       dialogueStats: getDialogueStats(),
-      recentDialogues: recentText,
+      recentDialogues: combinedContext,
       availableEmotions,
       speechLanguage,
       subtitleLanguage
@@ -176,6 +178,7 @@ class UnifiedAgent {
           retrievalResults: retrievalContext,
           characterInfo,
           skillList,
+          recentDialogues: combinedContext,
           speechLanguage,
           subtitleLanguage
         });
@@ -239,12 +242,12 @@ class UnifiedAgent {
       };
       dialogueDb.insert(dialogue);
 
+      memoryManager.ensureTopicTracking();
       memoryManager.shouldSwitchTopic(userInput).then(shouldSwitch => {
         if (shouldSwitch) {
           memoryManager.archiveCurrentTopic();
         }
       });
-      memoryManager.updateShortTermMemory(userInput, finalText);
       this.updateStatesAsync(userInput, finalText);
     }
 

@@ -46,7 +46,8 @@ export function getDialogueStats(): string {
 
 export function getRecentDialoguesText(limit: number = 20): string {
   const recentDialogues = dialogueDb.getRecent(limit);
-  return recentDialogues.reverse().map(d =>
-    `用户：${d.userContent}\n角色：${d.aiContent}`
-  ).join('\n');
+  return recentDialogues.reverse().map(d => {
+    const time = d.createdAt.toISOString().replace('T', ' ').slice(0, 16);
+    return `[${time}] 用户：${d.userContent}\n[${time}] 角色：${d.aiContent}`;
+  }).join('\n');
 }

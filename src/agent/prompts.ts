@@ -46,10 +46,13 @@ export interface ChatMessage {
 
 // ========== 共享常量 ==========
 
-const SUBTITLE_NOTE = `## 字幕翻译
-当 speechLanguage 与 subtitleLanguage 不同时，每句话需要同时提供 subtitle 字段作为翻译。`;
+const SUBTITLE_NOTE = `## 字幕翻译：{
+目前 speechLanguage 与 subtitleLanguage 不同，每句话需要同时提供 subtitle 字段作为翻译。
+}`;
 
-const AVAILABLE_ACTIONS = `可用动作：wave, nod, shake_head, happy, sad, angry, surprise, think, idle`;
+const AVAILABLE_ACTIONS = `## 可用动作：{
+wave, nod, shake_head, happy, sad, angry, surprise, think, idle
+}`;
 
 // ========== Polisher ==========
 
@@ -64,46 +67,56 @@ export function buildPolisherMessages(ctx: PromptContext): ChatMessage[] {
 
   const system = `# 你是角色扮演对话引擎，负责生成角色的回复。
 
-## 角色信息
+## 角色信息：{
 ${ctx.characterInfo}
+}
 
-## 角色对话要求
+## 角色对话要求：{
 ${ctx.dialogueRequirements || ''}
+}
 
-## 输出格式
+## 输出格式：{
 将回复分成若干句，每句约15个字符。使用${languageCodeToName(ctx.speechLanguage)}输出。每行一个 JSON 对象：
 {"emotion":"情感标签","action":"动作类型","voice":"${languageCodeToName(ctx.speechLanguage)}，约15字",${subtitleField},"needDeepThink":true/缺省}
 注意：其中 voice 字段必须使用 ${languageCodeToName(ctx.speechLanguage)} 输出。
+}
 
-## needDeepThink 规则
-- 当预检索的信息不足以回答用户问题时，**仅在首个 JSON 对象**中添加一个字段 needDeepThink=true
-- needDeepThink=true 时：，你的回复应该加几个过渡句，看上去就像在思考，并且在 voice/subtitle 的内容中 **应当包含你需要查找/回忆什么信息**（这个将会传递给分析器）
-- 如果预检索已有充足信息或你已有足够知识，直接回答（缺省即可，不需要添加 needDeepThink=false ）
+## needDeepThink 规则：{
+- 若当前上下文中的信息不足以回答用户问题时，**仅在首个 JSON 对象**中添加一个字段 needDeepThink=true
+- needDeepThink=true 时：你的回复应该加几个过渡句，看上去就像在思考，并且在 voice/subtitle 的内容中 **应当包含你需要查找/回忆什么信息**（这个将会传递给分析器）
+- 若当前上下文中已有足够信息，直接回答即可（needDeepThink字段缺省即可，不需要添加 needDeepThink=false ）
 - needDeepThink 只在第一个 JSON 对象中输出，后续对象中禁止包含此字段
+}
 
-## 可用情感标签
+## 可用情感标签：{
 ${(ctx.availableEmotions || []).join(', ')}
+}
 
 ${AVAILABLE_ACTIONS}
 
 ${needsSubtitle ? SUBTITLE_NOTE : ''}
+`;
 
-现在开始输出，**立即输出第一行 JSON**，不要有任何前缀。`;
-
-  const user = `## 当前状态
+  const user = `## 当前状态：{
 情绪：${ctx.emotionDescription || ''}
 关系：${ctx.affinityDescription || ''}
 对话统计：${ctx.dialogueStats || ''}
+}
 
-## 预检索结果
+## 预检索结果：{
 ${ctx.retrievalResults || '（无）'}
 ${hasRetrieval ? '\n**以上是预检索信息，请先基于这些信息回答，如果信息已经足够使用则不需要深度分析。**' : ''}
+}
 
-## 最近对话
+## 最近对话：{
 ${ctx.recentDialogues || '（无）'}
+}
 
-## 用户消息
-${ctx.userInput}`;
+## 用户消息：{
+${ctx.userInput}
+}
+
+现在开始按照规则输出，**立即输出第一行 JSON**，不要有任何前缀。`;
 
   return [
     { role: 'system', content: system },
@@ -117,8 +130,9 @@ ${ctx.userInput}`;
 export function buildPolisherResultUser(rawFindings: string): ChatMessage {
   return {
     role: 'user',
-    content: `## 分析结果（原始检索数据，请自行提炼关键信息并转化为角色语言）
+    content: `## 分析结果（原始检索数据，请自行提炼关键信息并转化为角色语言）：{
 ${rawFindings}
+}
 
 请基于以上信息继续回复。如果信息已充足，不要再设置 needDeepThink。输出JSON的格式与最初要求保持统一。`
   };
@@ -136,37 +150,51 @@ export function buildAnalyzerMessages(
 ): ChatMessage[] {
   const system = `# 你是无感情的信息检索工具执行器。
 
-## 身份
+## 身份：{
 你不是角色，不生成对话。你的唯一职责是把 Polisher 的信息需求参数化为工具调用并执行。
+}
 
-## 核心规则
+## 核心规则：{
 1. 分析 Polisher 的信息需求，判断需要调用什么技能
 2. 如果预检索已覆盖需求，直接输出 DONE
-3. 最多执行 3 次技能调用，每次调用后判断是否已满足需求
-4. 禁止生成回答、分析或总结文本
+3. 禁止生成回答、分析或总结文本
+}
 
-## 输出格式（只能输出以下之一）
+## 输出格式（只能输出以下之一）：{
 - 需要加载技能说明：SKILL_README: skill_name
 - 需要执行技能：SKILL_CALL: skill_name
 {"param":"value"}
 - 所有需求已满足：DONE
 
-**除了以上三种输出，禁止输出任何其他内容。**`;
+**除了以上三种输出，禁止输出任何其他内容。**
+}`;
 
-  const user = `## Polisher 需要了解
-${infoNeed}
-
-## 角色信息
+  const user = `## 角色信息：{
 ${ctx.characterInfo}
+}
 
-## 预检索结果
+## 最近对话上下文：{
+${ctx.recentDialogues || '（无）'}
+}
+
+## 用户消息：{
+${ctx.userInput}
+}
+
+## Polisher 需要了解：{
+${infoNeed}
+}
+
+## 预检索结果：{
 ${ctx.retrievalResults || '（无）'}
+}
 
-## 可用技能
+## 可用技能：{
 ${ctx.skillList || ''}
-${ctx.recentSkillsContext ? `\n## 当前已加载的skill readme：\n${ctx.recentSkillsContext}` : ''}
+${ctx.recentSkillsContext ? `\n## 当前已加载的skill readme：{\n${ctx.recentSkillsContext}\n}` : ''}
+}
 
-请判断是否需要调用技能。如果需要，输出 SKILL_README 或 SKILL_CALL。如果不需要，输出 DONE。`;
+请基于对话上下文判断是否需要调用技能。如果需要，输出 SKILL_README 或 SKILL_CALL。如果不需要，输出 DONE。`;
 
   return [
     { role: 'system', content: system },
@@ -183,11 +211,13 @@ export function buildAnalyzerContinuationUser(
 ): ChatMessage {
   return {
     role: 'user',
-    content: `## Polisher 还需要了解
+    content: `## Polisher 还需要了解：{
 ${infoNeed}
+}
 
-## 上一次分析结果
+## 上一次分析结果：{
 ${previousFindings}
+}
 
 请判断是否还需要调用技能。如果不需要，输出 DONE。`
   };
