@@ -7,9 +7,14 @@
 
 // ========== 工具函数 ==========
 
+const LANGUAGE_EX_INFO_JA = `完全に日本語で出力する必要があり、英語の単語は必ずカタカナで綴りの読み方を表記する必要があります`;
 const LANGUAGE_CODE_MAP: Record<string, string> = {
-  'ja-JP': '日本語',  'ja': '日本語',  'zh-CN': '中文(简体)',  'zh-TW': '中文(繁體)',
-  'zh': '中文(简体)',  'en-US': 'English',  'en': 'English',  'ko-KR': '한국어',
+  'ja-JP': '日本語，' + LANGUAGE_EX_INFO_JA,  
+  'ja': '日本語，' + LANGUAGE_EX_INFO_JA,  
+  'zh-CN': '中文(简体)',  
+  'zh-TW': '中文(繁體)',
+  'zh': '中文(简体)',  
+  'en-US': 'English',  'en': 'English',  'ko-KR': '한국어',
   'ko': '한국어',  'fr-FR': 'Français',  'fr': 'Français',  'de-DE': 'Deutsch',
   'de': 'Deutsch',  'es-ES': 'Español',  'es': 'Español',  'ru-RU': 'Русский',  'ru': 'Русский',};
 
@@ -83,9 +88,9 @@ ${ctx.dialogueRequirements || ''}
 }
 
 ## needDeepThink 规则：{
-- 若预检索结果中的信息不足以回答用户问题（例如提到未知概念或者涉及未召回的记忆），或者需要执行复杂任务时，**仅在首个 JSON 对象**中添加一个字段 needDeepThink=true
-- needDeepThink=true 时：在本句 voice/subtitle 的内容中 **应当包含你需要查找/回忆什么信息**（这个将会传递给分析器），后面几个句子则应该类似过渡句，体现你正在处理问题的状态。
-- 若不需要深度分析，直接回答即可（needDeepThink字段缺省即可，不需要添加 needDeepThink=false ）
+- 若用户提到未知概念或者涉及未召回的记忆，或者需要执行复杂任务时，**仅在首个 JSON 对象**中添加一个字段 needDeepThink=true
+- needDeepThink=true 时：先把目前有的信息说清楚，并且体现你正在处理问题的状态，本轮对话只需要说到一半，后续会补充步骤。
+- 若不需要深度分析，直接回答即可。（needDeepThink字段缺省即可，不需要添加 needDeepThink=false）
 - needDeepThink 只在第一个 JSON 对象中输出，后续对象中禁止包含此字段
 }
 
@@ -104,12 +109,12 @@ ${needsSubtitle ? SUBTITLE_NOTE : ''}
 对话统计：${ctx.dialogueStats || ''}
 }
 
-## 预检索结果：{
+## 预检索结果（仅在用户提到未知概念或涉及未召回记忆时且信息不足时启用深度分析）：{
 ${ctx.retrievalResults || '（无）'}
 ${hasRetrieval ? '\n**以上是预检索信息，请先基于这些信息回答，如果信息已经足够使用则不需要深度分析。**' : ''}
 }
 
-${ctx.visualContext ? "## 当前屏幕内容（仅在识别出乱码时启用needDeepThink）：{\n" + ctx.visualContext + "\n}" : ''}
+${ctx.visualContext ? "## 当前屏幕内容（仅在识别的信息完全无法回答用户问题时启用深度分析）：{\n" + ctx.visualContext + "\n}" : ''}
 
 ## 最近对话：{
 ${ctx.recentDialogues || '（无）'}
@@ -137,7 +142,7 @@ export function buildPolisherResultUser(rawFindings: string): ChatMessage {
 ${rawFindings}
 }
 
-请基于以上信息继续回复。如果信息已充足，不要再设置 needDeepThink。输出JSON的格式与最初要求保持统一。`
+请基于以上信息接续之前的输出继续回复（保持语义连贯成一段话）。如果信息已充足，不要再设置 needDeepThink。输出JSON的格式与最初要求保持统一。`
   };
 }
 

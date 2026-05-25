@@ -150,6 +150,7 @@ async def _run_analysis(image_base64: str, use_vllm: bool, precise_ocr: bool, qu
     """Core analysis pipeline: OCR + YOLO + optional VLLM."""
     start = time.time()
     img = base64_to_pil(image_base64)
+    img_w, img_h = img.size
 
     ocr_results = []
     detection_results = []
@@ -197,6 +198,8 @@ async def _run_analysis(image_base64: str, use_vllm: bool, precise_ocr: bool, qu
 
     return {
         "success": True,
+        "image_width": img_w,
+        "image_height": img_h,
         "ocr_results": ocr_results,
         "detection_results": detection_results,
         "vllm_result": vllm_result,
@@ -234,6 +237,8 @@ class DetectionItem(BaseModel):
 
 class AnalyzeResponse(BaseModel):
     success: bool
+    image_width: int
+    image_height: int
     ocr_results: List[OCRItem]
     detection_results: List[DetectionItem]
     vllm_result: Optional[str] = None

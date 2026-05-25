@@ -62,6 +62,8 @@ export interface DetectionItem {
 
 export interface AnalyzeResult {
   success: boolean;
+  image_width: number;
+  image_height: number;
   ocr_results: OCRItem[];
   detection_results: DetectionItem[];
   vllm_result?: string;

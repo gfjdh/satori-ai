@@ -17,6 +17,24 @@ interface ImageAnalysisParams {
   imageBase64?: string;
 }
 
+/** Map YOLO xyxy box center to a 3x3 grid position label. */
+function boxCenterToPosition(box: number[], imgW: number, imgH: number): string {
+  // YOLO xyxy: [x1, y1, x2, y2]
+  const cx = (box[0] + box[2]) / 2;
+  const cy = (box[1] + box[3]) / 2;
+
+  const nx = cx / imgW;
+  const ny = cy / imgH;
+
+  const col = nx < 0.33 ? '左' : nx < 0.66 ? '' : '右';
+  const row = ny < 0.33 ? '上' : ny < 0.66 ? '' : '下';
+
+  if (col && row) return `${col}${row}角`;
+  if (col) return `${col}侧`;
+  if (row) return `${row}方`;
+  return '中央';
+}
+
 export async function imageAnalysis(params: ImageAnalysisParams): Promise<string> {
   const useVllm = params.useVLLM ?? false;
   const preciseOCR = params.preciseOCR ?? false;
@@ -33,6 +51,7 @@ export async function imageAnalysis(params: ImageAnalysisParams): Promise<string
     throw new Error(`Image analysis failed: ${result.error || 'unknown error'}`);
   }
 
+  const { image_width: imgW, image_height: imgH } = result;
   const ocrCount = result.ocr_results.length;
   const detCount = result.detection_results.length;
   const elapsed = result.elapsed_ms;
@@ -51,9 +70,10 @@ export async function imageAnalysis(params: ImageAnalysisParams): Promise<string
   }
 
   if (detCount > 0) {
-    output += '--- 物体检测 ---\n';
+    output += '--- 物体检测（位置+置信度+类别） ---\n';
     for (const item of result.detection_results) {
-      output += `  [${(item.confidence * 100).toFixed(0)}%] ${item.class_name}\n`;
+      const pos = boxCenterToPosition(item.box, imgW, imgH);
+      output += `  ${pos} [${(item.confidence * 100).toFixed(0)}%] ${item.class_name}\n`;
     }
     output += '\n';
   } else {
