@@ -74,7 +74,7 @@ class UnifiedAgent {
     let visualContext = '';
     const triggeredSkills = skillEngine.matchTriggerSkills(userInput);
     for (const skill of triggeredSkills) {
-      const result = await skillEngine.executeSkill(skill.name, {});
+      const result = await skillEngine.executeSkill(skill.name, { query: userInput });
       if (result && skill.name === 'image-analysis') {
         visualContext = result;
       }

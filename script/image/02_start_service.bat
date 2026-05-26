@@ -24,6 +24,6 @@ start "Image Service" cmd /k "venv\Scripts\python.exe -m uvicorn app:app --host 
 
 echo.
 echo Image Analysis service is starting in a new window...
-echo Note: First run will download YOLO26n model (~3MB), please wait.
+echo Note: First run will initialize the service, please wait.
 echo.
 pause

@@ -48,34 +48,17 @@ function httpPost(host: string, port: number, pathStr: string, body: Record<stri
   });
 }
 
-export interface OCRItem {
-  text: string;
-  confidence: number;
-  box: number[][];
-}
-
-export interface DetectionItem {
-  class_name: string;
-  confidence: number;
-  box: number[];
-}
-
 export interface AnalyzeResult {
   success: boolean;
-  image_width: number;
-  image_height: number;
-  ocr_results: OCRItem[];
-  detection_results: DetectionItem[];
   vllm_result?: string;
   elapsed_ms: number;
   error?: string;
 }
 
-export async function analyzeImage(imageBase64: string, useVllm: boolean = false, preciseOCR: boolean = false, query?: string): Promise<AnalyzeResult> {
+export async function analyzeImage(imageBase64: string, vllmMode: string = 'fast', query?: string): Promise<AnalyzeResult> {
   const { data, statusCode } = await httpPost(IMAGE_SERVICE_HOST, IMAGE_SERVICE_PORT, '/analyze', {
     image_base64: imageBase64,
-    use_vllm: useVllm,
-    precise_ocr: preciseOCR,
+    vllm_mode: vllmMode,
     query: query || null
   });
 
@@ -86,10 +69,9 @@ export async function analyzeImage(imageBase64: string, useVllm: boolean = false
   return data as AnalyzeResult;
 }
 
-export async function captureAndAnalyze(useVllm: boolean = false, preciseOCR: boolean = false, query?: string): Promise<AnalyzeResult> {
+export async function captureAndAnalyze(vllmMode: string = 'fast', query?: string): Promise<AnalyzeResult> {
   const { data, statusCode } = await httpPost(IMAGE_SERVICE_HOST, IMAGE_SERVICE_PORT, '/capture', {
-    use_vllm: useVllm,
-    precise_ocr: preciseOCR,
+    vllm_mode: vllmMode,
     query: query || null
   });
 
@@ -100,10 +82,10 @@ export async function captureAndAnalyze(useVllm: boolean = false, preciseOCR: bo
   return data as AnalyzeResult;
 }
 
-export async function healthCheck(): Promise<{ status: string; service: string; ocr_fast_loaded: boolean; ocr_precise_loaded: boolean; yolo_loaded: boolean }> {
+export async function healthCheck(): Promise<{ status: string; service: string }> {
   const { data, statusCode } = await httpPost(IMAGE_SERVICE_HOST, IMAGE_SERVICE_PORT, '/health', {});
   if (statusCode >= 400) {
     throw new Error(`Health check failed: ${statusCode}`);
   }
-  return data as { status: string; service: string; ocr_fast_loaded: boolean; ocr_precise_loaded: boolean; yolo_loaded: boolean };
+  return data as { status: string; service: string };
 }

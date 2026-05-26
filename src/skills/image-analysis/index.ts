@@ -5,83 +5,41 @@
  * - 若提供 imageBase64：直接调用 /analyze 接口
  * - 否则：调用 /capture 接口（由 Python 服务通过 mss 截图）
  *
- * 结果包含 OCR 文本提取 + YOLO26n 物体检测 + 可选 VLLM 增强
+ * 结果由 Vision LLM 生成（快速/详细两种模式，仅提示词不同）
  */
 
 import { analyzeImage, captureAndAnalyze } from './client.js';
 
 interface ImageAnalysisParams {
-  useVLLM?: boolean;
-  preciseOCR?: boolean;
+  vllmMode?: string;
   query?: string;
   imageBase64?: string;
 }
 
-/** Map YOLO xyxy box center to a 3x3 grid position label. */
-function boxCenterToPosition(box: number[], imgW: number, imgH: number): string {
-  // YOLO xyxy: [x1, y1, x2, y2]
-  const cx = (box[0] + box[2]) / 2;
-  const cy = (box[1] + box[3]) / 2;
-
-  const nx = cx / imgW;
-  const ny = cy / imgH;
-
-  const col = nx < 0.33 ? '左' : nx < 0.66 ? '' : '右';
-  const row = ny < 0.33 ? '上' : ny < 0.66 ? '' : '下';
-
-  if (col && row) return `${col}${row}角`;
-  if (col) return `${col}侧`;
-  if (row) return `${row}方`;
-  return '中央';
-}
-
 export async function imageAnalysis(params: ImageAnalysisParams): Promise<string> {
-  const useVllm = params.useVLLM ?? false;
-  const preciseOCR = params.preciseOCR ?? false;
+  const vllmMode = params.vllmMode ?? 'fast';
   const query = params.query;
 
   let result;
   if (params.imageBase64) {
-    result = await analyzeImage(params.imageBase64, useVllm, preciseOCR, query);
+    result = await analyzeImage(params.imageBase64, vllmMode, query);
   } else {
-    result = await captureAndAnalyze(useVllm, preciseOCR, query);
+    result = await captureAndAnalyze(vllmMode, query);
   }
 
   if (!result.success) {
     throw new Error(`Image analysis failed: ${result.error || 'unknown error'}`);
   }
 
-  const { image_width: imgW, image_height: imgH } = result;
-  const ocrCount = result.ocr_results.length;
-  const detCount = result.detection_results.length;
+  const vllmLabel = vllmMode === 'detailed' ? '详细' : '快速';
   const elapsed = result.elapsed_ms;
-  const modeLabel = preciseOCR ? '精确' : '快速';
 
-  let output = `[图像分析结果] [${modeLabel}模式] OCR: ${ocrCount}条 | 检测: ${detCount}个 | 耗时: ${elapsed.toFixed(0)}ms\n\n`;
-
-  if (ocrCount > 0) {
-    output += '--- OCR 识别（置信度+文本） ---\n';
-    for (const item of result.ocr_results) {
-      output += `  [${(item.confidence * 100).toFixed(0)}%] ${item.text}\n`;
-    }
-    output += '\n';
-  } else {
-    output += '--- OCR 未识别到文本 ---\n\n';
-  }
-
-  if (detCount > 0) {
-    output += '--- 物体检测（位置+置信度+类别） ---\n';
-    for (const item of result.detection_results) {
-      const pos = boxCenterToPosition(item.box, imgW, imgH);
-      output += `  ${pos} [${(item.confidence * 100).toFixed(0)}%] ${item.class_name}\n`;
-    }
-    output += '\n';
-  } else {
-    output += '--- 未检测到物体 ---\n\n';
-  }
+  let output = `[图像分析结果] VLLM:${vllmLabel} | 耗时: ${elapsed.toFixed(0)}ms\n\n`;
 
   if (result.vllm_result) {
-    output += `--- VLLM 描述 ---\n${result.vllm_result}\n`;
+    output += `--- VLLM 描述（${vllmLabel}） ---\n${result.vllm_result}\n`;
+  } else {
+    output += '--- 未获取到 VLLM 结果 ---\n';
   }
 
   return output;
