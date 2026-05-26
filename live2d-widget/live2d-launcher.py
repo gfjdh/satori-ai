@@ -18,6 +18,7 @@ POSITION_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 
 BASE_WIDTH = 400
 BASE_HEIGHT = 600
+DODGE_DELAY = 500  # 鼠标进入后多少毫秒开始躲避
 
 
 def load_position():
@@ -87,8 +88,8 @@ class DragHandle(QWidget):
             painter.drawEllipse(QPoint(x, cy), dot_radius, dot_radius)
 
     def mousePressEvent(self, event):
+        self._window._cancel_dodge()
         if event.button() == Qt.MouseButton.LeftButton:
-            self._window._cancel_dodge()
             self._dragging = True
             self._drag_start_pos = event.globalPosition().toPoint()
             self.setCursor(QCursor(Qt.CursorShape.ClosedHandCursor))
@@ -120,10 +121,15 @@ class Live2DViewer(QWebEngineView):
 
     def __init__(self, window, parent=None):
         super().__init__(parent)
+        self._window = window
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         page = Live2DWebPage(window, self)
         page.setBackgroundColor(QColor(0, 0, 0, 0))
         self.setPage(page)
+
+    def mousePressEvent(self, event):
+        self._window._cancel_dodge()
+        super().mousePressEvent(event)
 
 
 class Live2DWindow(QMainWindow):
@@ -191,6 +197,8 @@ class Live2DWindow(QMainWindow):
         self._mouse_poll.timeout.connect(self._poll_mouse)
         self._mouse_poll.start(100)
 
+        QApplication.instance().installEventFilter(self)
+
         self.web_view.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         self.web_view.installEventFilter(self)
 
@@ -208,10 +216,17 @@ class Live2DWindow(QMainWindow):
     def _schedule_dodge(self):
         if self._dodge_cooldown or self._dodge_pending.isActive():
             return
-        self._dodge_pending.start(300)
+        self._dodge_pending.start(DODGE_DELAY)
 
     def _cancel_dodge(self):
+        was_pending = self._dodge_pending.isActive()
         self._dodge_pending.stop()
+
+        if was_pending and self._dodge_phase == 'idle' and not self._dodge_cooldown:
+            self._dodge_cooldown = True
+            self._dodge_return.start(5000)
+            return
+
         self._dodge_return.stop()
         self._dodge_anim.stop()
         self._dodge_phase = 'idle'
@@ -316,6 +331,10 @@ class Live2DWindow(QMainWindow):
             save_position(pos.x(), pos.y(), new_w, new_h)
 
     def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.MouseButtonPress:
+            gp = event.globalPosition().toPoint()
+            if self.geometry().contains(gp):
+                self._cancel_dodge()
         if event.type() == QEvent.Type.ContextMenu and obj is self.web_view:
             self.show_context_menu(event.globalPos())
             return True
@@ -372,7 +391,6 @@ def main():
     window.show()
 
     print(f'桌宠已启动，运行在 {LIVE2D_URL}')
-    print('窗口：400x600，悬浮右下角，无边框')
 
     sys.exit(app.exec())
 

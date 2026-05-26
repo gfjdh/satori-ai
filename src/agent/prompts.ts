@@ -90,7 +90,7 @@ ${ctx.dialogueRequirements || ''}
 ## needDeepThink 规则：{
 - 若用户提到未知概念或者涉及未召回的记忆，或者需要执行复杂任务时，**仅在首个 JSON 对象**中添加一个字段 needDeepThink=true
 - needDeepThink=true 时：先把目前有的信息说清楚，并且体现你正在处理问题的状态，本轮对话只需要说到一半，后续会补充步骤。
-- 若不需要深度分析，直接回答即可。（needDeepThink字段缺省即可，不需要添加 needDeepThink=false）
+- 若当前仅简单对话/互动，则不需要深度分析，直接回答即可。（needDeepThink字段缺省即可，不需要添加 needDeepThink=false）
 - needDeepThink 只在第一个 JSON 对象中输出，后续对象中禁止包含此字段
 }
 
@@ -139,7 +139,7 @@ export function buildPolisherResultUser(rawFindings: string): ChatMessage {
   return {
     role: 'user',
     content: `## 分析结果（原始检索数据，请自行提炼关键信息并转化为角色语言）：{
-${rawFindings}
+${rawFindings || '（无）'}
 }
 
 请基于以上信息接续之前的输出继续回复（保持语义连贯成一段话）。如果信息已充足，不要再设置 needDeepThink。输出JSON的格式与最初要求保持统一。`
