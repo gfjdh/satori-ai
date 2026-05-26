@@ -13,19 +13,60 @@
     let isAudioPlaying = false;
 
     // 字幕相关状态
-    let subtitleQueue = new Map();
+    let messageEls = [];              // 可见的消息DOM元素（最多3条）
+    let currentMsgEl = null;          // 当前正在接收的消息元素
+    let needNewMsgEl = true;          // 是否需要为下一条subtitle创建新元素
+    let subtitleQueue = new Map();    // 句子级流式队列
     let sentenceEndPunctuation = new Map();
     let streamingTimer = null;
     let streamingSentenceIndex = -1;
     let isStreamDone = false;
     let subtitleClearTimer = null;
+    const MAX_MESSAGES = 3;
+    const CLEAR_TIMEOUT = 10000;      // 10秒无新消息则清屏
 
     function resetSubtitleClearTimer() {
         if (subtitleClearTimer) clearTimeout(subtitleClearTimer);
-        subtitleClearTimer = setTimeout(function() {
-            var el = document.getElementById('subtitle-text');
-            if (el) el.textContent = '';
-        }, 3000);
+        subtitleClearTimer = setTimeout(clearAllSubtitles, CLEAR_TIMEOUT);
+    }
+
+    function clearAllSubtitles() {
+        var container = document.getElementById('subtitle-text');
+        if (container) {
+            while (container.firstChild) {
+                container.removeChild(container.firstChild);
+            }
+        }
+        messageEls = [];
+        currentMsgEl = null;
+        needNewMsgEl = true;
+    }
+
+    function createMessageElement() {
+        var container = document.getElementById('subtitle-text');
+        if (!container) return null;
+
+        // 超出上限时移除最早的
+        while (messageEls.length >= MAX_MESSAGES) {
+            var oldest = messageEls.shift();
+            if (oldest.parentNode) {
+                oldest.parentNode.removeChild(oldest);
+            }
+        }
+
+        var el = document.createElement('p');
+        el.className = 'subtitle-msg';
+        container.appendChild(el);
+        messageEls.push(el);
+        return el;
+    }
+
+    function getCurrentMsgEl() {
+        if (needNewMsgEl) {
+            currentMsgEl = createMessageElement();
+            needNewMsgEl = false;
+        }
+        return currentMsgEl;
     }
 
     // 获取结束标点类型
@@ -68,7 +109,7 @@
 
     // 流式显示文本（标点停顿）
     function startStreamingText(text, sentenceIndex) {
-        const subtitleEl = document.getElementById('subtitle-text');
+        const subtitleEl = getCurrentMsgEl();
         if (!subtitleEl) return;
 
         // 如果done事件已触发，直接flush
@@ -126,7 +167,7 @@
         if (subtitleQueue.size === 0) return;
 
         if (isStreamDone) {
-            const subtitleEl = document.getElementById('subtitle-text');
+            const subtitleEl = getCurrentMsgEl();
             if (subtitleEl) {
                 const sortedEntries = [...subtitleQueue.entries()].sort((a, b) => a[0] - b[0]);
                 for (const [, text] of sortedEntries) {
@@ -154,8 +195,11 @@
         sendBtn.disabled = true;
 
         // 清空字幕
-        const subtitleEl = document.getElementById('subtitle-text');
-        if (subtitleEl) subtitleEl.textContent = '';
+        clearAllSubtitles();
+        if (subtitleClearTimer) {
+            clearTimeout(subtitleClearTimer);
+            subtitleClearTimer = null;
+        }
 
         // 重置播放状态
         audioQueue = [];
@@ -173,6 +217,8 @@
         }
         streamingSentenceIndex = -1;
         isStreamDone = false;
+        needNewMsgEl = true;
+        currentMsgEl = null;
 
         try {
             console.log('Sending message:', userMessage);
@@ -226,7 +272,8 @@
                         } else if (eventType === 'subtitle_extra') {
                             try {
                                 const subData = JSON.parse(data);
-                                if (subtitleEl) subtitleEl.textContent += subData.text || '';
+                                var extraEl = getCurrentMsgEl();
+                                if (extraEl) extraEl.textContent += subData.text || '';
                                 resetSubtitleClearTimer();
                             } catch (e) { console.error('subtitle_extra parse error:', e); }
                         } else if (eventType === 'audio') {
@@ -241,13 +288,16 @@
                             } catch (e) { console.error('audio parse error:', e); }
                         } else if (eventType === 'done') {
                             isStreamDone = true;
+                            needNewMsgEl = true;
                         }
                     }
                 }
             }
         } catch (error) {
             console.error('Chat error:', error);
-            if (subtitleEl) subtitleEl.textContent = '错误: ' + error.message;
+            clearAllSubtitles();
+            var errEl = createMessageElement();
+            if (errEl) errEl.textContent = '错误: ' + error.message;
         } finally {
             sendBtn.disabled = false;
         }

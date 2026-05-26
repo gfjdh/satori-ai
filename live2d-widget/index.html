@@ -35,6 +35,12 @@
             pointer-events: none;
         }
         #subtitle-text {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: calc(4px * var(--window-scale));
+        }
+        .subtitle-msg {
             font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
             font-size: calc(16px * var(--window-scale));
             color: #fff;
@@ -44,6 +50,7 @@
             border-radius: calc(20px * var(--window-scale));
             display: inline-block;
             line-height: 1.4;
+            margin: 0;
         }
         #chat-container {
             position: fixed;
@@ -120,7 +127,7 @@
     <canvas id="canvas"></canvas>
 
     <div id="subtitle-container">
-        <p id="subtitle-text"></p>
+        <div id="subtitle-text"></div>
     </div>
 
     <div id="chat-container">
