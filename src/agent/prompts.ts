@@ -186,11 +186,10 @@ ${ctx.dialogueRequirements || ''}
 将回复分成若干句，每句约15个字符。使用${languageCodeToName(ctx.speechLanguage)}输出。每行一个 JSON 对象：
 {"emotion":"情感标签","action":"动作类型","voice":"${languageCodeToName(ctx.speechLanguage)}，约15字"${subtitleField ? ', ' + subtitleField : ''}}
 注意：其中 voice 字段必须使用 ${languageCodeToName(ctx.speechLanguage)} 输出。
-**禁止**在任何 JSON 对象中设置 needDeepThink 字段。
 }
 
 ## 当前场景：你正在主动发起对话 {
-你不是在回复用户，而是主动和用户开启一段简短的对话。基于屏幕内容和回忆中的事情自然地打招呼、分享回忆、或提一个小话题。保持自然随意。
+你不是在回复用户，而是主动和用户开启一段对话。基于屏幕内容和回忆中的事情自然地开启话题。保持自然随意。
 }
 
 ## 可用情感标签：{

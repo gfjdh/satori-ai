@@ -405,7 +405,8 @@ class Live2DWindow(QMainWindow):
         self.hide()
 
     def open_settings(self):
-        print('设置互动频率待实现')
+        self._log_to_db('info', 'launcher', 'Menu: 设置互动频率 clicked')
+        self.web_view.page().runJavaScript('window.live2dSettings && window.live2dSettings.show()')
 
     def close_app(self):
         pos = self.pos()

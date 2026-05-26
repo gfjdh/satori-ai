@@ -389,6 +389,61 @@ app.post('/api/log', (req: Request, res: Response) => {
   }
 });
 
+// 获取主动交互配置
+app.get('/api/proactive/config', (_req: Request, res: Response) => {
+  try {
+    const character = loadDefaultCharacter();
+    const raw = stateDb.get(character.id, 'proactive_config');
+    if (raw) {
+      res.json(JSON.parse(raw));
+    } else {
+      res.json({ enabled: true, minIntervalMinutes: 8, maxIntervalMinutes: 20 });
+    }
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+// 更新主动交互配置
+app.put('/api/proactive/config', (req: Request, res: Response) => {
+  try {
+    const character = loadDefaultCharacter();
+    const { enabled, minIntervalMinutes, maxIntervalMinutes } = req.body;
+
+    if (minIntervalMinutes !== undefined && maxIntervalMinutes !== undefined && minIntervalMinutes > maxIntervalMinutes) {
+      res.status(400).json({ error: '最小间隔不能大于最大间隔' });
+      return;
+    }
+
+    const raw = stateDb.get(character.id, 'proactive_config');
+    const existing = raw ? JSON.parse(raw) : { enabled: true, minIntervalMinutes: 8, maxIntervalMinutes: 20 };
+
+    if (enabled !== undefined) existing.enabled = enabled;
+    if (minIntervalMinutes !== undefined) existing.minIntervalMinutes = minIntervalMinutes;
+    if (maxIntervalMinutes !== undefined) existing.maxIntervalMinutes = maxIntervalMinutes;
+
+    stateDb.set(character.id, 'proactive_config', JSON.stringify(existing));
+
+    // 同步到运行时
+    proactiveConfig.enabled = existing.enabled;
+    proactiveConfig.minMs = existing.minIntervalMinutes * 60_000;
+    proactiveConfig.maxMs = existing.maxIntervalMinutes * 60_000;
+    resetProactiveTimer();
+
+    logDb.insert({
+      id: crypto.randomUUID(),
+      level: 'info',
+      category: 'proactive',
+      content: `Config updated: enabled=${existing.enabled}, min=${existing.minIntervalMinutes}min, max=${existing.maxIntervalMinutes}min`,
+      createdAt: new Date()
+    });
+
+    res.json({ success: true, config: existing });
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
 // 手动触发主动交互（右键菜单"互动"）
 app.post('/api/proactive/trigger', async (_req: Request, res: Response) => {
   logDb.insert({
@@ -662,7 +717,7 @@ async function executeProactiveInteraction(signal: AbortSignal): Promise<void> {
   // 1. 屏幕分析
   let screenDescription = '';
   try {
-    screenDescription = await imageAnalysis({});
+    screenDescription = await imageAnalysis({ query: '图中有什么值得讨论的东西？' });
     // screenDescription = await imageAnalysis({ vllmMode: 'detailed' });
   } catch (e) {
     logDb.insert({

@@ -121,6 +121,114 @@
             font-size: 18px;
             display: none;
         }
+        #settings-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+        }
+        #settings-overlay.visible {
+            display: flex;
+        }
+        #settings-panel {
+            background: rgba(30,30,40,0.95);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 16px;
+            padding: 24px;
+            min-width: 280px;
+            color: #ddd;
+            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+        }
+        #settings-panel h3 {
+            margin: 0 0 16px 0;
+            font-size: 16px;
+            color: #fff;
+            text-align: center;
+        }
+        #settings-panel label {
+            display: block;
+            font-size: 13px;
+            margin-bottom: 4px;
+            color: #aaa;
+        }
+        #settings-panel .row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        #settings-panel .row input[type="range"] {
+            flex: 1;
+            accent-color: #ff69b4;
+        }
+        #settings-panel .row .val {
+            min-width: 36px;
+            text-align: right;
+            font-size: 14px;
+            font-weight: bold;
+            color: #ff69b4;
+        }
+        #settings-panel .toggle-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+        #settings-panel .toggle-row span {
+            font-size: 13px;
+            color: #aaa;
+        }
+        #settings-panel .toggle {
+            width: 44px; height: 24px;
+            border-radius: 12px;
+            background: #555;
+            cursor: pointer;
+            position: relative;
+            transition: background 0.2s;
+        }
+        #settings-panel .toggle.on {
+            background: #ff69b4;
+        }
+        #settings-panel .toggle::after {
+            content: '';
+            position: absolute;
+            top: 3px; left: 3px;
+            width: 18px; height: 18px;
+            border-radius: 50%;
+            background: #fff;
+            transition: transform 0.2s;
+        }
+        #settings-panel .toggle.on::after {
+            transform: translateX(20px);
+        }
+        #settings-panel .btn-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+        }
+        #settings-panel button {
+            flex: 1;
+            padding: 8px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-family: inherit;
+        }
+        #settings-panel .btn-save {
+            background: #ff69b4;
+            color: #fff;
+        }
+        #settings-panel .btn-save:hover { background: #ff1493; }
+        #settings-panel .btn-close {
+            background: rgba(255,255,255,0.1);
+            color: #ccc;
+        }
+        #settings-panel .btn-close:hover { background: rgba(255,255,255,0.2); }
     </style>
 </head>
 <body>
@@ -141,6 +249,30 @@
         <p id="error-message"></p>
     </div>
 
+    <div id="settings-overlay">
+        <div id="settings-panel">
+            <h3>互动频率设置</h3>
+            <div class="toggle-row">
+                <span>启用主动交互</span>
+                <div class="toggle on" id="toggle-enabled"></div>
+            </div>
+            <label>最小间隔（<span id="val-min">8</span> 分钟）</label>
+            <div class="row">
+                <input type="range" id="range-min" min="1" max="60" value="8">
+                <span class="val" id="disp-min">8</span>
+            </div>
+            <label>最大间隔（<span id="val-max">20</span> 分钟）</label>
+            <div class="row">
+                <input type="range" id="range-max" min="2" max="120" value="20">
+                <span class="val" id="disp-max">20</span>
+            </div>
+            <div class="btn-row">
+                <button class="btn-close" id="btn-settings-close">取消</button>
+                <button class="btn-save" id="btn-settings-save">保存</button>
+            </div>
+        </div>
+    </div>
+
     <script src="libs/pixi.min.js"></script>
     <script src="libs/live2d.min.js"></script>
     <script src="libs/live2dcubismcore.min.js"></script>
@@ -149,5 +281,6 @@
     <script src="js/model-interaction.js"></script>
     <script src="js/model-setup.js"></script>
     <script src="js/live2d-chat.js"></script>
+    <script src="js/live2d-settings.js"></script>
 </body>
 </html>
