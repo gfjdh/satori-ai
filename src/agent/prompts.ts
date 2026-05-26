@@ -45,6 +45,20 @@ export interface PromptContext {
   subtitleLanguage?: string;
 }
 
+export interface ProactivePromptContext {
+  screenDescription: string;
+  memoryContent: string;
+  characterInfo: string;
+  dialogueRequirements?: string;
+  emotionDescription?: string;
+  affinityDescription?: string;
+  dialogueStats?: string;
+  recentDialogues?: string;
+  availableEmotions?: string[];
+  speechLanguage?: string;
+  subtitleLanguage?: string;
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -144,6 +158,74 @@ ${rawFindings || '（无）'}
 
 请基于以上信息接续之前的输出继续回复（保持语义连贯成一段话）。如果信息已充足，不要再设置 needDeepThink。输出JSON的格式与最初要求保持统一。`
   };
+}
+
+// ========== Proactive ==========
+
+export function buildProactiveMessages(ctx: ProactivePromptContext): ChatMessage[] {
+  const needsSubtitle = ctx.speechLanguage !== ctx.subtitleLanguage;
+  const subtitleField = needsSubtitle
+    ? `"subtitle":"voice字段的翻译文本（${languageCodeToName(ctx.subtitleLanguage)}）"`
+    : '';
+
+  const screenNote = ctx.screenDescription
+    ? ctx.screenDescription
+    : '（屏幕分析服务暂不可用，看不到用户当前屏幕。请在对话中自然地提及这一点，比如好奇地问问用户在做什么。）';
+
+  const system = `# 你是角色扮演对话引擎，负责生成角色的回复。
+
+## 角色信息：{
+${ctx.characterInfo}
+}
+
+## 角色对话要求：{
+${ctx.dialogueRequirements || ''}
+}
+
+## 输出格式：{
+将回复分成若干句，每句约15个字符。使用${languageCodeToName(ctx.speechLanguage)}输出。每行一个 JSON 对象：
+{"emotion":"情感标签","action":"动作类型","voice":"${languageCodeToName(ctx.speechLanguage)}，约15字"${subtitleField ? ', ' + subtitleField : ''}}
+注意：其中 voice 字段必须使用 ${languageCodeToName(ctx.speechLanguage)} 输出。
+**禁止**在任何 JSON 对象中设置 needDeepThink 字段。
+}
+
+## 当前场景：你正在主动发起对话 {
+你不是在回复用户，而是主动和用户开启一段简短的对话。基于屏幕内容和回忆中的事情自然地打招呼、分享回忆、或提一个小话题。保持自然随意。
+}
+
+## 可用情感标签：{
+${(ctx.availableEmotions || []).join(', ')}
+}
+
+${AVAILABLE_ACTIONS}
+
+${needsSubtitle ? SUBTITLE_NOTE : ''}
+`;
+
+  const user = `## 当前状态：{
+情绪：${ctx.emotionDescription || ''}
+关系：${ctx.affinityDescription || ''}
+对话统计：${ctx.dialogueStats || ''}
+}
+
+## 当前屏幕内容：{
+${screenNote}
+}
+
+## 你回忆起的一件事：{
+${ctx.memoryContent}
+}
+
+## 近期对话：{
+${ctx.recentDialogues || '（无）'}
+}
+
+现在基于以上信息，主动和用户开启一段自然的对话。**立即输出第一行 JSON**，不要有任何前缀。`;
+
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user }
+  ];
 }
 
 // ========== Analyzer ==========

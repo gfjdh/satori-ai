@@ -184,6 +184,94 @@
         startStreamingText(nextText, nextIndex);
     }
 
+    // 处理单条 SSE 事件（chat 和 proactive 共用）
+    function handleSSEEvent(eventType, data) {
+        console.log('SSE event:', eventType, 'data:', data.substring(0, 100));
+
+        if (eventType === 'voice') {
+            try {
+                const voiceData = JSON.parse(data);
+                const sentenceIndex = voiceData.sentenceIndex || 0;
+                sentenceEndPunctuation.set(sentenceIndex, getEndPunctuation(voiceData.text || ''));
+            } catch (e) { console.error('voice parse error:', e); }
+        } else if (eventType === 'subtitle') {
+            try {
+                const subData = JSON.parse(data);
+                const text = (subData.text || '').replace(/\[ACTION:[^\]]+\]/g, '');
+                const sentenceIndex = subData.sentenceIndex || 0;
+                resetSubtitleClearTimer();
+                startStreamingText(text, sentenceIndex);
+            } catch (e) { console.error('subtitle parse error:', e); }
+        } else if (eventType === 'subtitle_extra') {
+            try {
+                const subData = JSON.parse(data);
+                var extraEl = getCurrentMsgEl();
+                if (extraEl) extraEl.textContent += subData.text || '';
+                resetSubtitleClearTimer();
+            } catch (e) { console.error('subtitle_extra parse error:', e); }
+        } else if (eventType === 'audio') {
+            try {
+                const audioData = JSON.parse(data);
+                audioQueue.push({
+                    base64: audioData.audio,
+                    sentenceIndex: audioData.sentenceIndex
+                });
+                audioQueue.sort(function(a, b) { return a.sentenceIndex - b.sentenceIndex; });
+                playNextAudio();
+            } catch (e) { console.error('audio parse error:', e); }
+        } else if (eventType === 'done') {
+            isStreamDone = true;
+            needNewMsgEl = true;
+            processSubtitleQueue();
+        } else if (eventType === 'error') {
+            try {
+                const errData = JSON.parse(data);
+                console.error('Proactive error:', errData.message);
+                var errEl = createMessageElement();
+                if (errEl) errEl.textContent = errData.message || '未知错误';
+            } catch (e) { console.error('error event parse:', e); }
+        }
+    }
+
+    // 建立 proactive SSE 长连接
+    let proactiveEventSource = null;
+
+    function connectProactiveStream() {
+        if (proactiveEventSource) {
+            proactiveEventSource.close();
+        }
+
+        console.log('Connecting proactive SSE stream...');
+        proactiveEventSource = new EventSource(API_BASE + '/api/proactive/stream');
+
+        proactiveEventSource.addEventListener('voice', function(e) {
+            handleSSEEvent('voice', e.data);
+        });
+        proactiveEventSource.addEventListener('subtitle', function(e) {
+            handleSSEEvent('subtitle', e.data);
+        });
+        proactiveEventSource.addEventListener('audio', function(e) {
+            handleSSEEvent('audio', e.data);
+        });
+        proactiveEventSource.addEventListener('done', function(e) {
+            handleSSEEvent('done', e.data);
+        });
+        proactiveEventSource.addEventListener('error', function(e) {
+            if (e.data) {
+                handleSSEEvent('error', e.data);
+            }
+            console.log('Proactive SSE stream error (will reconnect)', e.target.readyState);
+        });
+
+        proactiveEventSource.onerror = function() {
+            // EventSource 会自动重连，但太频繁时手动延迟
+            console.log('Proactive SSE connection lost, reconnecting in 5s...');
+            proactiveEventSource.close();
+            proactiveEventSource = null;
+            setTimeout(connectProactiveStream, 5000);
+        };
+    }
+
     // 发送消息
     async function sendMessage() {
         const input = document.getElementById('chat-input');
@@ -252,44 +340,7 @@
                     if (line.startsWith('data:')) {
                         const data = line.slice(5).trim();
                         if (!data) continue;
-
-                        console.log('SSE event:', eventType, 'data:', data.substring(0, 100));
-
-                        if (eventType === 'voice') {
-                            try {
-                                const voiceData = JSON.parse(data);
-                                const sentenceIndex = voiceData.sentenceIndex || 0;
-                                sentenceEndPunctuation.set(sentenceIndex, getEndPunctuation(voiceData.text || ''));
-                            } catch (e) { console.error('voice parse error:', e); }
-                        } else if (eventType === 'subtitle') {
-                            try {
-                                const subData = JSON.parse(data);
-                                const text = (subData.text || '').replace(/\[ACTION:[^\]]+\]/g, '');
-                                const sentenceIndex = subData.sentenceIndex || 0;
-                                resetSubtitleClearTimer();
-                                startStreamingText(text, sentenceIndex);
-                            } catch (e) { console.error('subtitle parse error:', e); }
-                        } else if (eventType === 'subtitle_extra') {
-                            try {
-                                const subData = JSON.parse(data);
-                                var extraEl = getCurrentMsgEl();
-                                if (extraEl) extraEl.textContent += subData.text || '';
-                                resetSubtitleClearTimer();
-                            } catch (e) { console.error('subtitle_extra parse error:', e); }
-                        } else if (eventType === 'audio') {
-                            try {
-                                const audioData = JSON.parse(data);
-                                audioQueue.push({
-                                    base64: audioData.audio,
-                                    sentenceIndex: audioData.sentenceIndex
-                                });
-                                audioQueue.sort(function(a, b) { return a.sentenceIndex - b.sentenceIndex; });
-                                playNextAudio();
-                            } catch (e) { console.error('audio parse error:', e); }
-                        } else if (eventType === 'done') {
-                            isStreamDone = true;
-                            needNewMsgEl = true;
-                        }
+                        handleSSEEvent(eventType, data);
                     }
                 }
             }
@@ -330,6 +381,8 @@
         } else {
             console.error('chat-input not found');
         }
+
+        connectProactiveStream();
 
         console.log('Live2D chat module initialized');
     }

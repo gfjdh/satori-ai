@@ -9,9 +9,11 @@ import { embeddingManager } from './embedding/manager.js';
 import { stateManager } from './state/manager.js';
 import { memoryManager } from './memory/manager.js';
 import { skillEngine } from './skills/engine.js';
-import { taskDb, logDb } from './db/database.js';
+import { taskDb, logDb, stateDb } from './db/database.js';
 import { dialogueDb } from './db/database.js';
 import { loadDefaultCharacter } from './character/loader.js';
+import { proactiveAgent } from './agent/proactive-agent.js';
+import { imageAnalysis } from './skills/image-analysis/index.js';
 import { SSEMessage } from './types/index.js';
 import cron from 'node-cron';
 
@@ -315,6 +317,9 @@ app.get('/api/tasks', (req: Request, res: Response) => {
 // ========== 对话接口 (SSE流式) ==========
 
 let currentChatAbortController: AbortController | null = null;
+let currentProactiveAbortController: AbortController | null = null;
+let proactiveTimer = { nextTriggerAt: 0 };
+let proactiveConfig = { enabled: true, minMs: 480_000, maxMs: 1_200_000 };
 
 app.post('/api/chat', async (req: Request, res: Response) => {
   const { message } = req.body;
@@ -322,6 +327,12 @@ app.post('/api/chat', async (req: Request, res: Response) => {
   if (!message) {
     res.status(400).json({ error: 'Message is required' });
     return;
+  }
+
+  // 中断进行中的主动交互
+  if (currentProactiveAbortController) {
+    currentProactiveAbortController.abort();
+    currentProactiveAbortController = null;
   }
 
   // 中断当前正在进行的对话（视为正常结束，后处理由 unifiedAgent.finalizeTurn 完成）
@@ -348,6 +359,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
 
     // done 事件已由 unifiedAgent.finalizeTurn() 发送，这里只需关闭连接
     res.end();
+    resetProactiveTimer();
   } catch (error) {
     logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'agent', content: `Chat API Error: ${error}`, createdAt: new Date() });
     sendSSE('error', { message: String(error) });
@@ -357,6 +369,102 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     if (currentChatAbortController && currentChatAbortController.signal === signal) {
       currentChatAbortController = null;
     }
+  }
+});
+
+// Python 桌宠端写入日志（含菜单操作诊断）
+app.post('/api/log', (req: Request, res: Response) => {
+  try {
+    const { level, category, content } = req.body;
+    logDb.insert({
+      id: crypto.randomUUID(),
+      level: level || 'info',
+      category: category || 'launcher',
+      content: content || '',
+      createdAt: new Date()
+    });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+// 手动触发主动交互（右键菜单"互动"）
+app.post('/api/proactive/trigger', async (_req: Request, res: Response) => {
+  logDb.insert({
+    id: crypto.randomUUID(),
+    level: 'info',
+    category: 'proactive',
+    content: `Manual trigger requested (clients=${proactiveSSEClients.length}, chatActive=${currentChatAbortController !== null})`,
+    createdAt: new Date()
+  });
+
+  if (proactiveSSEClients.length === 0) {
+    logDb.insert({
+      id: crypto.randomUUID(),
+      level: 'warn',
+      category: 'proactive',
+      content: 'Manual trigger rejected: no connected clients',
+      createdAt: new Date()
+    });
+    res.status(400).json({ error: '没有已连接的桌宠客户端' });
+    return;
+  }
+
+  if (currentProactiveAbortController) {
+    logDb.insert({
+      id: crypto.randomUUID(),
+      level: 'info',
+      category: 'proactive',
+      content: 'Aborting previous proactive interaction',
+      createdAt: new Date()
+    });
+    currentProactiveAbortController.abort();
+    currentProactiveAbortController = null;
+  }
+
+  if (currentChatAbortController) {
+    logDb.insert({
+      id: crypto.randomUUID(),
+      level: 'warn',
+      category: 'proactive',
+      content: 'Manual trigger rejected: chat in progress',
+      createdAt: new Date()
+    });
+    res.status(409).json({ error: '当前正在进行对话，请稍后再试' });
+    return;
+  }
+
+  currentProactiveAbortController = new AbortController();
+  const signal = currentProactiveAbortController.signal;
+
+  logDb.insert({
+    id: crypto.randomUUID(),
+    level: 'info',
+    category: 'proactive',
+    content: 'Manual trigger accepted, executing...',
+    createdAt: new Date()
+  });
+
+  res.json({ success: true, message: '主动对话已触发' });
+
+  try {
+    await executeProactiveInteraction(signal);
+  } catch (error) {
+    if (signal.aborted) return;
+    logDb.insert({
+      id: crypto.randomUUID(),
+      level: 'error',
+      category: 'proactive',
+      content: `Manual proactive trigger failed: ${error}`,
+      createdAt: new Date()
+    });
+    broadcastProactiveMessage({ type: 'error', data: { message: String(error) } });
+  } finally {
+    if (currentProactiveAbortController?.signal === signal) {
+      currentProactiveAbortController = null;
+    }
+    resetProactiveTimer();
   }
 });
 
@@ -408,6 +516,38 @@ app.get('/api/character/live2d-config', (req: Request, res: Response) => {
   } catch (error) {
     res.status(500).json({ error: `获取Live2D配置失败: ${String(error)}` });
   }
+});
+
+// 主动交互 SSE 长连接（widget 页面加载时连接，接收主动推送）
+app.get('/api/proactive/stream', (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  const sendSSE = (msg: SSEMessage) => {
+    const payload = typeof msg.data === 'string' ? msg.data : JSON.stringify(msg.data);
+    res.write(`event: ${msg.type}\ndata: ${payload}\n\n`);
+  };
+
+  registerProactiveClient(sendSSE);
+  logDb.insert({
+    id: crypto.randomUUID(),
+    level: 'info',
+    category: 'proactive',
+    content: `Proactive SSE client connected (total=${proactiveSSEClients.length})`,
+    createdAt: new Date()
+  });
+
+  req.on('close', () => {
+    unregisterProactiveClient(sendSSE);
+    logDb.insert({
+      id: crypto.randomUUID(),
+      level: 'info',
+      category: 'proactive',
+      content: `Proactive SSE client disconnected (total=${proactiveSSEClients.length})`,
+      createdAt: new Date()
+    });
+  });
 });
 
 // ========== 心跳任务 ==========
@@ -469,66 +609,97 @@ function startHeartbeat() {
   });
 }
 
-// 主动交互检查
-async function checkProactiveInteraction(): Promise<void> {
-  if (proactiveSSEClients.length === 0) {
-    return; // 没有客户端连接，跳过
-  }
-
-  // TODO: 从配置中读取主动交互频率
-  // 目前简化处理：每10分钟可能触发一次主动交互
-  const now = new Date();
-  const minuteOfHour = now.getMinutes();
-
-  // 只在特定分钟检查（控制频率）
-  if (minuteOfHour % 10 !== 0) {
-    return;
-  }
-
-  // 随机决定是否主动交互（50%概率）
-  if (Math.random() > 0.5) {
-    return;
-  }
-
+// 加载主动交互配置（从 system_state 表）
+function loadProactiveConfig(): void {
   try {
-    // 随机召回一段记忆
-    const recalledMemories = await memoryManager.recallRandomMemory();
-    if (recalledMemories.length > 0) {
-      const memory = recalledMemories[0];
-
-      // 生成主动交互内容
-      const proactivePrompt = `基于以下记忆，以角色身份主动发起对话：
-记忆：${memory.content}
-
-要求：
-- 简短自然，像是在回忆过去
-- 不超过两句话
-- 符合角色性格`;
-
-      const config = await import('./api/llm.js').then(m => m.getLLMConfig());
-      const { callLLM } = await import('./api/llm.js');
-
-      const response = await callLLM({
-        model: config.model,
-        messages: [{ role: 'user', content: proactivePrompt }],
-        temperature: 0.8
-      });
-
-      // 发送主动交互消息
-      broadcastProactiveMessage({
-        type: 'proactive',
-        data: {
-          text: response.content,
-          source: 'memory_recall',
-          memoryId: memory.id
-        }
-      });
-
-      logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'heartbeat', content: 'Proactive interaction triggered', createdAt: new Date() });
+    const character = loadDefaultCharacter();
+    const raw = stateDb.get(character.id, 'proactive_config');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      proactiveConfig.enabled = parsed.enabled ?? true;
+      proactiveConfig.minMs = (parsed.minIntervalMinutes ?? 8) * 60_000;
+      proactiveConfig.maxMs = (parsed.maxIntervalMinutes ?? 20) * 60_000;
+    } else {
+      const defaults = { enabled: true, minIntervalMinutes: 8, maxIntervalMinutes: 20 };
+      stateDb.set(character.id, 'proactive_config', JSON.stringify(defaults));
+      proactiveConfig.minMs = defaults.minIntervalMinutes * 60_000;
+      proactiveConfig.maxMs = defaults.maxIntervalMinutes * 60_000;
     }
   } catch (error) {
-    logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'heartbeat', content: `Proactive interaction failed: ${error}`, createdAt: new Date() });
+    logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'heartbeat', content: `Failed to load proactive config: ${error}`, createdAt: new Date() });
   }
+}
+
+// 重置主动交互计时器
+function resetProactiveTimer(): void {
+  const delay = proactiveConfig.minMs +
+    Math.random() * (proactiveConfig.maxMs - proactiveConfig.minMs);
+  proactiveTimer.nextTriggerAt = Date.now() + delay;
+}
+
+// 主动交互检查（心跳触发，有门控条件）
+async function checkProactiveInteraction(): Promise<void> {
+  if (!proactiveConfig.enabled) return;
+  if (proactiveSSEClients.length === 0) return;
+  if (Date.now() < proactiveTimer.nextTriggerAt) return;
+  if (currentChatAbortController !== null) return;
+
+  currentProactiveAbortController = new AbortController();
+  const signal = currentProactiveAbortController.signal;
+
+  try {
+    await executeProactiveInteraction(signal);
+  } finally {
+    if (currentProactiveAbortController?.signal === signal) {
+      currentProactiveAbortController = null;
+    }
+    resetProactiveTimer();
+  }
+}
+
+// 执行主动交互核心逻辑（屏幕分析 → 记忆召回 → LLM生成 → SSE广播）
+async function executeProactiveInteraction(signal: AbortSignal): Promise<void> {
+  // 1. 屏幕分析
+  let screenDescription = '';
+  try {
+    screenDescription = await imageAnalysis({});
+    // screenDescription = await imageAnalysis({ vllmMode: 'detailed' });
+  } catch (e) {
+    logDb.insert({
+      id: crypto.randomUUID(),
+      level: 'error',
+      category: 'proactive',
+      content: `Screen capture failed: ${e}`,
+      createdAt: new Date()
+    });
+    broadcastProactiveMessage({
+      type: 'error',
+      data: { message: '屏幕分析服务连接失败，请检查 Python 图像服务是否运行（端口 8742）' }
+    });
+  }
+
+  if (signal.aborted) return;
+
+  // 2. 随机 day 记忆
+  const memory = await memoryManager.recallRandomDayMemory();
+
+  if (signal.aborted) return;
+
+  // 3. 运行 ProactiveAgent
+  const sendSSE = (msg: SSEMessage) => broadcastProactiveMessage(msg);
+  if (memory) {
+    await proactiveAgent.generate(screenDescription, sendSSE, signal, memory);
+  } else {
+    await proactiveAgent.generate(screenDescription, sendSSE, signal);
+  }
+
+  logDb.insert({
+    id: crypto.randomUUID(),
+    level: 'info',
+    category: 'proactive',
+    content: 'Proactive interaction completed',
+    createdAt: new Date()
+  });
 }
 
 function calculateNextRun(cronExpr: string): Date {
@@ -544,6 +715,7 @@ app.listen(PORT, async () => {
   // 加载角色卡
   const character = loadDefaultCharacter();
   unifiedAgent.setCharacter(character);
+  proactiveAgent.setCharacter(character);
 
   // 配置状态管理器使用角色卡的阶段定义
   stateManager.configureDimensions({
@@ -567,6 +739,8 @@ app.listen(PORT, async () => {
   await memoryManager.recoverAndSummarizeUnarchived();
 
   // 启动心跳
+  loadProactiveConfig();
+  resetProactiveTimer();
   startHeartbeat();
 
   logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: 'Ready', createdAt: new Date() });

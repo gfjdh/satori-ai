@@ -3,6 +3,8 @@
  */
 
 import { Segment } from './types.js';
+import { SSEMessage } from '../types/index.js';
+import { synthesizeStream } from '../tts/client.js';
 
 /**
  * 解析单行 JSON 为 Segment
@@ -52,4 +54,43 @@ export function sendDeepThinkPending(onSSE?: (message: any) => void): void {
  */
 export function sendDone(onSSE?: (message: any) => void): void {
   onSSE?.({ type: 'done', data: {} });
+}
+
+export async function emitSegment(
+  seg: { voice: string; emotion: string; action: string; subtitle?: string },
+  sentenceIndex: number,
+  speechLanguage: string,
+  subtitleLanguage: string,
+  characterId: string,
+  onSSE?: (message: SSEMessage) => void
+): Promise<number> {
+  onSSE?.({
+    type: 'voice',
+    data: {
+      text: seg.voice,
+      emotion: seg.emotion,
+      action: seg.action,
+      language: speechLanguage,
+      sentenceIndex
+    }
+  });
+
+  if (seg.subtitle && speechLanguage !== subtitleLanguage) {
+    onSSE?.({
+      type: 'subtitle',
+      data: { text: seg.subtitle, sentenceIndex }
+    });
+  }
+
+  try {
+    const audioBuffer = await synthesizeStream(seg.voice, characterId, seg.emotion);
+    onSSE?.({
+      type: 'audio',
+      data: { audio: audioBuffer.toString('base64'), sentenceIndex }
+    });
+  } catch {
+    // TTS 失败不阻塞
+  }
+
+  return sentenceIndex + 1;
 }

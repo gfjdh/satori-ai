@@ -9,6 +9,7 @@
  */
 
 import { analyzeImage, captureAndAnalyze } from './client.js';
+import { logDb } from '../../db/database.js';
 
 interface ImageAnalysisParams {
   vllmMode?: string;
@@ -19,6 +20,7 @@ interface ImageAnalysisParams {
 export async function imageAnalysis(params: ImageAnalysisParams): Promise<string> {
   const vllmMode = params.vllmMode ?? 'fast';
   const query = params.query;
+  const startTime = Date.now();
 
   let result;
   if (params.imageBase64) {
@@ -27,12 +29,20 @@ export async function imageAnalysis(params: ImageAnalysisParams): Promise<string
     result = await captureAndAnalyze(vllmMode, query);
   }
 
+  const elapsed = Date.now() - startTime;
+
   if (!result.success) {
+    logDb.insert({
+      id: crypto.randomUUID(),
+      level: 'error',
+      category: 'image_analysis',
+      content: JSON.stringify({ input: query ?? '', elapsed_ms: elapsed, error: result.error }),
+      createdAt: new Date(),
+    });
     throw new Error(`Image analysis failed: ${result.error || 'unknown error'}`);
   }
 
   const vllmLabel = vllmMode === 'detailed' ? '详细' : '快速';
-  const elapsed = result.elapsed_ms;
 
   let output = `[图像分析结果] VLLM:${vllmLabel} | 耗时: ${elapsed.toFixed(0)}ms\n\n`;
 
@@ -41,6 +51,14 @@ export async function imageAnalysis(params: ImageAnalysisParams): Promise<string
   } else {
     output += '--- 未获取到 VLLM 结果 ---\n';
   }
+
+  logDb.insert({
+    id: crypto.randomUUID(),
+    level: 'info',
+    category: 'image_analysis',
+    content: JSON.stringify({ input: query ?? '', elapsed_ms: elapsed, output: output }),
+    createdAt: new Date(),
+  });
 
   return output;
 }

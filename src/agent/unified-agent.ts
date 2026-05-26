@@ -18,12 +18,11 @@ import { callLLMStream, getLLMConfig } from '../api/llm.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Dialogue, SSEMessage } from '../types/index.js';
 import { skillEngine } from '../skills/engine.js';
-import { synthesizeStream } from '../tts/client.js';
 import { getAvailableEmotions } from '../tts/client.js';
 import { loadDefaultCharacter, type CharacterConfig } from '../character/loader.js';
 
 import { buildPolisherMessages, buildPolisherResultUser, buildAnalyzerMessages, buildAnalyzerContinuationUser, type ChatMessage } from './prompts.js';
-import { parseSegment } from './segment-utils.js';
+import { parseSegment, emitSegment } from './segment-utils.js';
 import { createAnalysisSession } from './analysis-loop.js';
 import { getDialogueStats, getRecentDialoguesText } from './dialogue-stats.js';
 
@@ -336,47 +335,6 @@ class UnifiedAgent {
   setCharacter(config: Partial<CharacterConfig>): void {
     this.character = { ...this.character, ...config } as CharacterConfig;
   }
-}
-
-// ========== 辅助 ==========
-
-async function emitSegment(
-  seg: { voice: string; emotion: string; action: string; subtitle?: string },
-  sentenceIndex: number,
-  speechLanguage: string,
-  subtitleLanguage: string,
-  characterId: string,
-  onSSE?: (message: SSEMessage) => void
-): Promise<number> {
-  onSSE?.({
-    type: 'voice',
-    data: {
-      text: seg.voice,
-      emotion: seg.emotion,
-      action: seg.action,
-      language: speechLanguage,
-      sentenceIndex
-    }
-  });
-
-  if (seg.subtitle && speechLanguage !== subtitleLanguage) {
-    onSSE?.({
-      type: 'subtitle',
-      data: { text: seg.subtitle, sentenceIndex }
-    });
-  }
-
-  try {
-    const audioBuffer = await synthesizeStream(seg.voice, characterId, seg.emotion);
-    onSSE?.({
-      type: 'audio',
-      data: { audio: audioBuffer.toString('base64'), sentenceIndex }
-    });
-  } catch {
-    // TTS 失败不阻塞
-  }
-
-  return sentenceIndex + 1;
 }
 
 export const unifiedAgent = new UnifiedAgent();

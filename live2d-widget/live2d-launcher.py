@@ -7,6 +7,7 @@ Satori Live2D 桌宠启动器
 import sys
 import os
 import json
+import urllib.request
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QMenu
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEngineSettings, QWebEnginePage
@@ -344,7 +345,7 @@ class Live2DWindow(QMainWindow):
         menu = QMenu(self)
 
         menu.addAction('打开管理页面', self.open_admin_page)
-        menu.addAction('互动', self.handle_interaction)
+        menu.addAction('主动互动', self.handle_interaction)
         menu.addAction('变装', self.handle_change_costume)
         menu.addAction('隐藏', self.hide_window)
         menu.addAction('设置互动频率', self.open_settings)
@@ -362,8 +363,40 @@ class Live2DWindow(QMainWindow):
         import webbrowser
         webbrowser.open('http://localhost:5173')
 
+    def _log_to_db(self, level, category, content):
+        """向后端日志数据库写入一条日志"""
+        try:
+            data = json.dumps({'level': level, 'category': category, 'content': content}).encode('utf-8')
+            req = urllib.request.Request(
+                'http://localhost:3000/api/log',
+                data=data,
+                method='POST',
+                headers={'Content-Type': 'application/json'}
+            )
+            urllib.request.urlopen(req, timeout=3)
+        except Exception:
+            pass  # 日志写入失败不影响主流程
+
     def handle_interaction(self):
-        print('互动功能待实现')
+        self._log_to_db('info', 'launcher', 'Menu: 互动 clicked')
+        try:
+            req = urllib.request.Request(
+                'http://localhost:3000/api/proactive/trigger',
+                method='POST',
+                headers={'Content-Type': 'application/json'}
+            )
+            self._log_to_db('info', 'launcher', 'POST /api/proactive/trigger sending')
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                result = json.loads(resp.read().decode('utf-8'))
+                self._log_to_db('info', 'launcher', f'Trigger response: {resp.status} {result}')
+                print(f'主动对话: {result.get("message", "已触发")}')
+        except urllib.error.HTTPError as e:
+            body = e.read().decode('utf-8') if e.fp else ''
+            self._log_to_db('error', 'launcher', f'Trigger HTTP {e.code}: {body}')
+            print(f'互动失败 ({e.code}): {body}', file=sys.stderr)
+        except Exception as e:
+            self._log_to_db('error', 'launcher', f'Trigger exception: {e}')
+            print(f'互动请求失败: {e}', file=sys.stderr)
 
     def handle_change_costume(self):
         print('变装功能待实现')

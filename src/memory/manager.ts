@@ -345,6 +345,14 @@ ${memoryText}
     return [memories[randomIndex]];
   }
 
+  // 全量加载 day 记忆后随机选一条（用于主动交互）
+  async recallRandomDayMemory(): Promise<Memory | null> {
+    const allDays = memoryDb.getByGranularity('day', 100000);
+    if (allDays.length === 0) return null;
+    const idx = Math.floor(Math.random() * allDays.length);
+    return allDays[idx];
+  }
+
   // 启动时恢复未归档的对话并汇总为topic
   async recoverAndSummarizeUnarchived(): Promise<void> {
     // 1. 获取最后一个topic记忆的periodEnd作为分界线
