@@ -41,7 +41,7 @@ class MemoryManager {
     if (recentDialogues.length <= 10) return false;
 
     const dialogueText = recentDialogues.map(d =>
-      `用户：${d.userContent}\n角色：${d.aiContent}`
+      d.userContent === '[Proactive]' ? `角色：${d.aiContent}` : `用户：${d.userContent}\n角色：${d.aiContent}`
     ).join('\n');
 
     const prompt = `最近对话：
@@ -76,7 +76,7 @@ ${dialogueText}
     if (dialogues.length === 0) return;
 
     const dialogueText = dialogues.map(d =>
-      `用户：${d.userContent}\n角色：${d.aiContent}`
+      d.userContent === '[Proactive]' ? `角色：${d.aiContent}` : `用户：${d.userContent}\n角色：${d.aiContent}`
     ).join('\n---\n');
 
     const config = getLLMConfig();
@@ -87,7 +87,8 @@ ${dialogueText}
 请以JSON格式返回，不要包含其他任何内容：
 {
   "topic": "话题名称（简短，几个字）",
-  "summary": "对话总结（要简洁而全面，尽可能高密度地保留信息，最多500字左右）"
+  "summary": "对话总结（要简洁而全面，尽可能高密度地保留信息，最多200字左右）",
+  "user_state": "从对话推断用户当前状态：在做什么、工作/生活节奏等。无信息则填'未知'。50字内。"
 }`;
 
     try {
@@ -109,6 +110,7 @@ ${dialogueText}
         id: memoryId,
         granularity: 'topic' as const,
         content: parsed.summary,
+        userState: parsed.user_state || null,
         periodStart: firstDialogue.createdAt,
         periodEnd: lastDialogue.createdAt,
         createdAt: now
@@ -207,18 +209,21 @@ ${dialogueText}
       return;
     }
 
-    // 构建总结内容
+    // 构建总结内容（包含此时段用户状态）
     const memoryText = relevantMemories
-      .map(m => `[${m.granularity}] ${this.formatTimeRange(m.periodStart, m.periodEnd)}: ${m.content}`)
+      .map(m => {
+        const base = `[${m.granularity}] ${this.formatTimeRange(m.periodStart, m.periodEnd)}: ${m.content}`;
+        return m.userState ? `${base}\n此时段用户状态: ${m.userState}` : base;
+      })
       .join('\n---\n');
 
     const summaryPrompt = `请对以下一段时期的记忆进行汇总总结：
 
 ${memoryText}
 
-要求尽可能简洁而全面，提取核心内容，以最高效的方式存储信息。最多500字左右。
+要求在保留主要内容的同时尽可能简洁，提取核心内容，以最高效的方式存储信息。500字以内。
 请以JSON格式返回：
-{"summary": "这段时期的整体总结"}`;
+{"summary": "这段时期对话内容的整体总结", "user_state": "根据对话分析这段时间用户的状态，要考虑包括但不限于时间、作息、行为、目标、变化趋势等因素，综合体现用户的工作生活学习状态。100字内。"}`;
 
     try {
       const config = getLLMConfig();
@@ -239,6 +244,7 @@ ${memoryText}
           id: memoryId,
           granularity,
           content: parsed.summary,
+          userState: parsed.user_state || null,
           periodStart: startDate,
           periodEnd: endDate,
           createdAt: endDate
@@ -283,44 +289,46 @@ ${memoryText}
     const latestSeason = memoryDb.getByGranularity('season', 1);
     const latestYear = memoryDb.getByGranularity('year', 1);
 
+    const fmt = (m: Memory): string => m.userState ? `- ${m.content}（此时段用户状态: ${m.userState}）` : `- ${m.content}`;
+
     // 自上次日总结以来，所有 topic 粒度记忆
     const dayCutoff = latestDay.length > 0 ? latestDay[0].periodEnd : new Date(0);
     const recentTopics = this.getMemoriesSince('topic', dayCutoff);
     if (recentTopics.length > 0) {
-      parts.push('## 近期话题\n' + recentTopics.map(m => `- ${m.content}`).join('\n'));
+      parts.push('## 近期话题\n' + recentTopics.map(fmt).join('\n'));
     }
 
     // 自上次周总结以来，所有 day 粒度记忆
     const weekCutoff = latestWeek.length > 0 ? latestWeek[0].periodEnd : new Date(0);
     const recentDays = this.getMemoriesSince('day', weekCutoff);
     if (recentDays.length > 0) {
-      parts.push('## 近日总结\n' + recentDays.map(m => `- ${m.content}`).join('\n'));
+      parts.push('## 近日总结\n' + recentDays.map(fmt).join('\n'));
     }
 
     // 自上次月总结以来，所有 week 粒度记忆
     const monthCutoff = latestMonth.length > 0 ? latestMonth[0].periodEnd : new Date(0);
     const recentWeeks = this.getMemoriesSince('week', monthCutoff);
     if (recentWeeks.length > 0) {
-      parts.push('## 近周总结\n' + recentWeeks.map(m => `- ${m.content}`).join('\n'));
+      parts.push('## 近周总结\n' + recentWeeks.map(fmt).join('\n'));
     }
 
     // 自上次季总结以来，所有 month 粒度记忆
     const seasonCutoff = latestSeason.length > 0 ? latestSeason[0].periodEnd : new Date(0);
     const recentMonths = this.getMemoriesSince('month', seasonCutoff);
     if (recentMonths.length > 0) {
-      parts.push('## 近月总结\n' + recentMonths.map(m => `- ${m.content}`).join('\n'));
+      parts.push('## 近月总结\n' + recentMonths.map(fmt).join('\n'));
     }
 
     // 自上次年总结以来，所有 season 粒度记忆
     const yearCutoff = latestYear.length > 0 ? latestYear[0].periodEnd : new Date(0);
     const recentSeasons = this.getMemoriesSince('season', yearCutoff);
     if (recentSeasons.length > 0) {
-      parts.push('## 近季总结\n' + recentSeasons.map(m => `- ${m.content}`).join('\n'));
+      parts.push('## 近季总结\n' + recentSeasons.map(fmt).join('\n'));
     }
 
     // 最近一条年总结
     if (latestYear.length > 0) {
-      parts.push('## 年度总结\n' + latestYear.map(m => `- ${m.content}`).join('\n'));
+      parts.push('## 年度总结\n' + latestYear.map(fmt).join('\n'));
     }
 
     return parts.join('\n\n');
@@ -369,7 +377,7 @@ ${memoryText}
 
     // 3. 构建对话摘要prompt
     const dialogueText = unarchivedDialogues
-      .map(d => `用户：${d.userContent}\n角色：${d.aiContent}`)
+      .map(d => d.userContent === '[Proactive]' ? `角色：${d.aiContent}` : `用户：${d.userContent}\n角色：${d.aiContent}`)
       .join('\n---\n');
 
     const summaryPrompt = `请总结以下一段时期的对话，提取核心话题和关键内容：
@@ -379,7 +387,8 @@ ${dialogueText}
 请以JSON格式返回，不要包含其他任何内容：
 {
   "topic": "话题名称（简短，几个字）",
-  "summary": "对话总结（要简洁而全面，尽可能高密度地保留信息，最多500字左右，优先删除与核心话题关联最小的内容）"
+  "summary": "对话总结（要简洁而全面，尽可能高密度地保留信息，最多500字左右，优先删除与核心话题关联最小的内容）",
+  "user_state": "从对话推断用户当前状态：在做什么、工作/生活节奏、情绪基调、是否疲惫/兴奋等。无信息则填'未知'。20字内。"
 }`;
 
     // 4. 调用LLM生成总结
@@ -409,6 +418,7 @@ ${dialogueText}
       id: memoryId,
       granularity: 'topic' as const,
       content: parsed.summary,
+      userState: parsed.user_state || null,
       periodStart: firstDialogue.createdAt,
       periodEnd: lastDialogue.createdAt,
       createdAt: new Date()

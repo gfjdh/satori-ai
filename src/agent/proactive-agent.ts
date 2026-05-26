@@ -50,9 +50,13 @@ export class ProactiveAgent {
     const memoryContext = memoryManager.buildRecentContext();
     const combinedContext = [memoryContext, recentText].filter(Boolean).join('\n\n');
 
+    const memoryContent = memory
+      ? `${memory.content}（此时段用户状态: ${memory.userState || '未知'}）`
+      : '无';
+
     const messages: ChatMessage[] = buildProactiveMessages({
       screenDescription,
-      memoryContent: memory?.content || '无',
+      memoryContent,
       characterInfo,
       dialogueRequirements,
       emotionDescription: stateManager.getEmotionDescription(),

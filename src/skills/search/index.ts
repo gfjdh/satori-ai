@@ -40,6 +40,7 @@ interface RetrievalResult {
     periodStart?: string;
     periodEnd?: string;
     category?: string;
+    userState?: string;
   };
 }
 
@@ -128,7 +129,9 @@ function enrichMemoryWithCoarser(memResult: { id: string; content: string; granu
   };
 
   for (const coarser of coarserMemories) {
-    enrichedParts.push(`\n${granularityLabel[coarser.granularity] || coarser.granularity}记忆：${coarser.content}`);
+    const label = granularityLabel[coarser.granularity] || coarser.granularity;
+    const statePart = coarser.userState ? `（此时段用户状态: ${coarser.userState}）` : '';
+    enrichedParts.push(`\n${label}记忆：${coarser.content}${statePart}`);
   }
 
   return enrichedParts.join('');
@@ -161,7 +164,8 @@ async function searchMemories(
         metadata: {
           granularity: mem?.granularity,
           periodStart: mem?.periodStart.toISOString(),
-          periodEnd: mem?.periodEnd.toISOString()
+          periodEnd: mem?.periodEnd.toISOString(),
+          userState: mem?.userState
         }
       };
     });
@@ -188,7 +192,8 @@ async function searchMemories(
       metadata: {
         granularity: mem.granularity,
         periodStart: mem.periodStart.toISOString(),
-        periodEnd: mem.periodEnd.toISOString()
+        periodEnd: mem.periodEnd.toISOString(),
+        userState: mem.userState
       }
     }))
     .filter(r => r.score > 0)
@@ -328,7 +333,8 @@ function formatRetrievalContext(results: RetrievalResult[]): string {
         label = `[${r.metadata.category}]`;
       }
 
-      return `${label} ${r.content} (score: ${r.score.toFixed(3)})`;
+      const stateSuffix = r.metadata.userState ? `（此时段用户状态: ${r.metadata.userState}）` : '';
+      return `${label} ${r.content}${stateSuffix} (score: ${r.score.toFixed(3)})`;
     })
     .join('\n');
 }

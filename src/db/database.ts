@@ -87,6 +87,13 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_logs_category ON logs(category);
 `);
 
+// 迁移：添加 user_state 列
+try {
+  db.exec(`ALTER TABLE memories ADD COLUMN user_state TEXT`);
+} catch {
+  // 列已存在，忽略
+}
+
 // ========== 对话操作 ==========
 export const dialogueDb = {
   insert(dialogue: Dialogue): void {
@@ -156,13 +163,14 @@ export const dialogueDb = {
 export const memoryDb = {
   insert(memory: Memory): void {
     const stmt = db.prepare(`
-      INSERT INTO memories (id, granularity, content, embedding, period_start, period_end, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO memories (id, granularity, content, user_state, embedding, period_start, period_end, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       memory.id,
       memory.granularity,
       memory.content,
+      memory.userState ?? null,
       memory.embedding ?? null,
       memory.periodStart.toISOString(),
       memory.periodEnd.toISOString(),
@@ -229,6 +237,7 @@ export const memoryDb = {
       id: row.id,
       granularity: row.granularity,
       content: row.content,
+      userState: row.user_state ?? null,
       periodStart: new Date(row.period_start),
       periodEnd: new Date(row.period_end),
       createdAt: new Date(row.created_at)
@@ -242,6 +251,7 @@ export const memoryDb = {
       id: row.id,
       granularity: row.granularity,
       content: row.content,
+      userState: row.user_state ?? null,
       embedding: row.embedding,
       periodStart: new Date(row.period_start),
       periodEnd: new Date(row.period_end),
@@ -256,6 +266,7 @@ export const memoryDb = {
       id: row.id,
       granularity: row.granularity,
       content: row.content,
+      userState: row.user_state ?? null,
       embedding: row.embedding ? Buffer.from(row.embedding) : null,
       periodStart: new Date(row.period_start),
       periodEnd: new Date(row.period_end),
@@ -266,6 +277,22 @@ export const memoryDb = {
   updateEmbedding(id: string, embedding: Buffer): void {
     const stmt = db.prepare('UPDATE memories SET embedding = ? WHERE id = ?');
     stmt.run(embedding, id);
+  },
+
+  getByUserState(searchTerm: string, limit: number = 20): Memory[] {
+    const stmt = db.prepare(`
+      SELECT * FROM memories WHERE user_state IS NOT NULL AND user_state LIKE ? ORDER BY period_start DESC LIMIT ?
+    `);
+    const rows = stmt.all(`%${searchTerm}%`, limit) as any[];
+    return rows.map(row => ({
+      id: row.id,
+      granularity: row.granularity,
+      content: row.content,
+      userState: row.user_state ?? null,
+      periodStart: new Date(row.period_start),
+      periodEnd: new Date(row.period_end),
+      createdAt: new Date(row.created_at)
+    }));
   }
 };
 

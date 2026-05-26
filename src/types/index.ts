@@ -35,6 +35,7 @@ export interface Memory {
   id: string;
   granularity: 'year' | 'season' | 'month' | 'week' | 'day' | 'topic';
   content: string;
+  userState?: string;
   relevance?: number; // 相关性得分
   embedding?: Buffer | null;
   periodStart: Date;

@@ -65,6 +65,21 @@
         if (needNewMsgEl) {
             currentMsgEl = createMessageElement();
             needNewMsgEl = false;
+            // 新的对话轮次开始，重置流式状态
+            isStreamDone = false;
+            if (streamingTimer) {
+                clearTimeout(streamingTimer);
+                streamingTimer = null;
+            }
+            streamingSentenceIndex = -1;
+            // 停止旧 session 的音频（新 session 已开始，旧音频无意义）
+            if (audioElement) {
+                audioElement.pause();
+                audioElement = null;
+            }
+            isAudioPlaying = false;
+            currentPlayingIndex = -1;
+            audioQueue = [];
         }
         return currentMsgEl;
     }
