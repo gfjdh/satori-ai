@@ -252,7 +252,8 @@ ${screenNote}
 ${ctx.memoryContent}
 }
 
-## 近期对话：{
+## 角色与用户的最近聊天记录（用于帮你理解对话上下文，不要复读其中的内容）：
+{
 ${ctx.recentDialogues || '（无）'}
 }
 

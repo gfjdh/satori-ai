@@ -38,7 +38,7 @@ class MemoryManager {
     const config = getLLMConfig();
 
     const recentDialogues = dialogueDb.getSince(currentTopicStartTime);
-    if (recentDialogues.length <= 10) return false;
+    if (recentDialogues.length <= 5) return false;
 
     const dialogueText = recentDialogues.map(d =>
       d.userContent === '[Proactive]' ? `角色：${d.aiContent}` : `用户：${d.userContent}\n角色：${d.aiContent}`

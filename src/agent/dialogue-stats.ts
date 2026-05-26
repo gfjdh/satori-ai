@@ -48,6 +48,8 @@ export function getRecentDialoguesText(limit: number = 20): string {
   const recentDialogues = dialogueDb.getRecent(limit);
   return recentDialogues.reverse().map(d => {
     const time = d.createdAt.toISOString().replace('T', ' ').slice(0, 16);
-    return `[${time}] 用户：${d.userContent}\n[${time}] 角色：${d.aiContent}`;
+    return d.userContent === '[Proactive]'
+      ? `[${time}] 角色主动发起对话\n[${time}] 角色：${d.aiContent}`
+      : `[${time}] 用户：${d.userContent}\n[${time}] 角色：${d.aiContent}`;
   }).join('\n');
 }
