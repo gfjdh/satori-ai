@@ -7,13 +7,36 @@
 
 // ========== 工具函数 ==========
 
+/** 时段映射：凌晨0-5 / 清晨6-7 / 上午8-11 / 中午12-13 / 下午14-17 / 傍晚18-19 / 晚上20-22 / 深夜23 */
+function getPeriod(hour: number): string {
+  if (hour < 6) return '凌晨';
+  if (hour < 8) return '清晨';
+  if (hour < 12) return '上午';
+  if (hour < 14) return '中午';
+  if (hour < 18) return '下午';
+  if (hour < 20) return '傍晚';
+  if (hour < 23) return '晚上';
+  return '深夜';
+}
+
+function formatCurrentTime(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1;
+  const d = now.getDate();
+  const h = now.getHours();
+  const min = now.getMinutes().toString().padStart(2, '0');
+  const period = getPeriod(h);
+  return `${y}年${m}月${d}日${period}${h}点${min}分`;
+}
+
 const LANGUAGE_EX_INFO_JA = `完全に日本語で出力する必要があり、英語の単語は必ずカタカナで綴りの読み方を表記する必要があります`;
 const LANGUAGE_CODE_MAP: Record<string, string> = {
-  'ja-JP': '日本語，' + LANGUAGE_EX_INFO_JA,  
-  'ja': '日本語，' + LANGUAGE_EX_INFO_JA,  
-  'zh-CN': '中文(简体)',  
+  'ja-JP': '日本語，' + LANGUAGE_EX_INFO_JA,
+  'ja': '日本語，' + LANGUAGE_EX_INFO_JA,
+  'zh-CN': '中文(简体)',
   'zh-TW': '中文(繁體)',
-  'zh': '中文(简体)',  
+  'zh': '中文(简体)',
   'en-US': 'English',  'en': 'English',  'ko-KR': '한국어',
   'ko': '한국어',  'fr-FR': 'Français',  'fr': 'Français',  'de-DE': 'Deutsch',
   'de': 'Deutsch',  'es-ES': 'Español',  'es': 'Español',  'ru-RU': 'Русский',  'ru': 'Русский',};
@@ -74,6 +97,8 @@ const AVAILABLE_ACTIONS = `## 可用动作：{
 wave, nod, shake_head, happy, sad, angry, surprise, think, idle
 }`;
 
+const HUMANIFY = "不要说“我能帮你做什么吗？”之类的客套话，你没有能力提供帮助，你只是想和用户聊聊天，话题可以很随意，可以是对当前屏幕的评论，也可以是回忆中的事情引发的感慨，或者是对用户状态的关心，总之要有活人感而不是人机感。"
+
 // ========== Polisher ==========
 
 /**
@@ -93,6 +118,7 @@ ${ctx.characterInfo}
 
 ## 角色对话要求：{
 ${ctx.dialogueRequirements || ''}
+${HUMANIFY}
 }
 
 ## 输出格式：{
@@ -117,7 +143,8 @@ ${AVAILABLE_ACTIONS}
 ${needsSubtitle ? SUBTITLE_NOTE : ''}
 `;
 
-  const user = `## 当前状态：{
+  const user = `
+## 当前状态：{
 情绪：${ctx.emotionDescription || ''}
 关系：${ctx.affinityDescription || ''}
 对话统计：${ctx.dialogueStats || ''}
@@ -134,10 +161,13 @@ ${ctx.visualContext ? "## 当前屏幕内容（仅在识别的信息完全无法
 ${ctx.recentDialogues || '（无）'}
 }
 
+## 当前时间：${formatCurrentTime()}
+
 ## 用户消息：{
 ${ctx.userInput}
 }
 
+${needsSubtitle ? `"注意：输出的JSON中 voice 字段必须使用 ${languageCodeToName(ctx.speechLanguage)}。"` : ''}
 现在开始按照规则输出，**立即输出第一行 JSON**，不要有任何前缀。`;
 
   return [
@@ -152,11 +182,13 @@ ${ctx.userInput}
 export function buildPolisherResultUser(rawFindings: string): ChatMessage {
   return {
     role: 'user',
-    content: `## 分析结果（原始检索数据，请自行提炼关键信息并转化为角色语言）：{
+    content: `## 当前时间：${formatCurrentTime()}
+
+## 分析结果（原始检索数据，请自行提炼关键信息并转化为角色语言）：{
 ${rawFindings || '（无）'}
 }
 
-请基于以上信息接续之前的输出继续回复（保持语义连贯成一段话）。如果信息已充足，不要再设置 needDeepThink。输出JSON的格式与最初要求保持统一。`
+请基于以上信息接续之前的输出继续回复（保持语义连贯成一段话）。如果信息已充足，不要再设置 needDeepThink。输出JSON的格式与最初要求保持统一，尤其注意各字段的语种。`
   };
 }
 
@@ -170,7 +202,7 @@ export function buildProactiveMessages(ctx: ProactivePromptContext): ChatMessage
 
   const screenNote = ctx.screenDescription
     ? ctx.screenDescription
-    : '（屏幕分析服务暂不可用，看不到用户当前屏幕。请在对话中自然地提及这一点，比如好奇地问问用户在做什么。）';
+    : '（屏幕分析服务暂不可用，看不到用户当前屏幕。请在对话中自然地提及这一点。）';
 
   const system = `# 你是角色扮演对话引擎，负责生成角色的回复。
 
@@ -180,16 +212,18 @@ ${ctx.characterInfo}
 
 ## 角色对话要求：{
 ${ctx.dialogueRequirements || ''}
+${HUMANIFY}
 }
 
 ## 输出格式：{
 将回复分成若干句，每句约15个字符。使用${languageCodeToName(ctx.speechLanguage)}输出。每行一个 JSON 对象：
 {"emotion":"情感标签","action":"动作类型","voice":"${languageCodeToName(ctx.speechLanguage)}，约15字"${subtitleField ? ', ' + subtitleField : ''}}
-注意：其中 voice 字段必须使用 ${languageCodeToName(ctx.speechLanguage)} 输出。
+${needsSubtitle ? `"注意：其中 voice 字段必须使用 ${languageCodeToName(ctx.speechLanguage)}。"` : ''}
 }
 
 ## 当前场景：你正在主动发起对话 {
-你不是在回复用户，而是主动和用户开启一段对话。基于屏幕内容和回忆中的事情自然地开启话题。保持自然随意。
+你不是在回复用户，而是主动和用户开启一段对话。基于屏幕内容和回忆中的事情自然地开启话题。不需要打招呼，保持自然随意。
+${HUMANIFY}
 }
 
 ## 可用情感标签：{
@@ -201,11 +235,14 @@ ${AVAILABLE_ACTIONS}
 ${needsSubtitle ? SUBTITLE_NOTE : ''}
 `;
 
-  const user = `## 当前状态：{
+  const user = `
+## 当前状态：{
 情绪：${ctx.emotionDescription || ''}
 关系：${ctx.affinityDescription || ''}
 对话统计：${ctx.dialogueStats || ''}
 }
+
+## 当前时间：${formatCurrentTime()}
 
 ## 当前屏幕内容：{
 ${screenNote}
@@ -219,7 +256,8 @@ ${ctx.memoryContent}
 ${ctx.recentDialogues || '（无）'}
 }
 
-现在基于以上信息，主动和用户开启一段自然的对话。**立即输出第一行 JSON**，不要有任何前缀。`;
+${needsSubtitle ? `"注意：输出的JSON中 voice 字段必须使用 ${languageCodeToName(ctx.speechLanguage)}。"` : ''}
+现在基于以上信息，主动和用户开启一段自然的对话，。**立即输出第一行 JSON**，不要有任何前缀。`;
 
   return [
     { role: 'system', content: system },
@@ -259,13 +297,16 @@ export function buildAnalyzerMessages(
 **除了以上三种输出，禁止输出任何其他内容。**
 }`;
 
-  const user = `## 角色信息：{
+  const user = `
+## 角色信息：{
 ${ctx.characterInfo}
 }
 
 ## 最近对话上下文：{
 ${ctx.recentDialogues || '（无）'}
 }
+
+## 当前时间：${formatCurrentTime()}
 
 ## 用户消息：{
 ${ctx.userInput}
@@ -301,7 +342,9 @@ export function buildAnalyzerContinuationUser(
 ): ChatMessage {
   return {
     role: 'user',
-    content: `## Polisher 还需要了解：{
+    content: `## 当前时间：${formatCurrentTime()}
+
+## Polisher 还需要了解：{
 ${infoNeed}
 }
 
