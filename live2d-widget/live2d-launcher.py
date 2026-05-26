@@ -10,7 +10,7 @@ import json
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QMenu
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEngineSettings, QWebEnginePage
-from PySide6.QtCore import QUrl, Qt, QEvent, QPoint
+from PySide6.QtCore import QUrl, Qt, QEvent, QPoint, QTimer
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QCursor
 
 
@@ -88,6 +88,7 @@ class DragHandle(QWidget):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            self._window._cancel_dodge()
             self._dragging = True
             self._drag_start_pos = event.globalPosition().toPoint()
             self.setCursor(QCursor(Qt.CursorShape.ClosedHandCursor))
@@ -108,6 +109,7 @@ class DragHandle(QWidget):
 
     def enterEvent(self, event):
         self.update()
+        self._window._schedule_dodge()
 
     def leaveEvent(self, event):
         self.update()
@@ -171,6 +173,24 @@ class Live2DWindow(QMainWindow):
 
         self.setCentralWidget(central)
 
+        # --- Dodge state ---
+        self._original_pos = None
+        self._dodge_cooldown = False
+        self._dodge_phase = 'idle'
+        self._dodge_pending = QTimer()
+        self._dodge_pending.setSingleShot(True)
+        self._dodge_pending.timeout.connect(self._start_dodge)
+        self._dodge_anim = QTimer()
+        self._dodge_anim.timeout.connect(self._dodge_anim_step)
+        self._dodge_return = QTimer()
+        self._dodge_return.setSingleShot(True)
+        self._dodge_return.timeout.connect(self._return_from_dodge)
+
+        self._mouse_inside = False
+        self._mouse_poll = QTimer()
+        self._mouse_poll.timeout.connect(self._poll_mouse)
+        self._mouse_poll.start(100)
+
         self.web_view.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         self.web_view.installEventFilter(self)
 
@@ -182,6 +202,105 @@ class Live2DWindow(QMainWindow):
 
         print(f'桌宠加载中: {url}')
         self.web_view.loadFinished.connect(self.on_load_finished)
+
+    # ---- Dodge ----
+
+    def _schedule_dodge(self):
+        if self._dodge_cooldown or self._dodge_pending.isActive():
+            return
+        self._dodge_pending.start(300)
+
+    def _cancel_dodge(self):
+        self._dodge_pending.stop()
+        self._dodge_return.stop()
+        self._dodge_anim.stop()
+        self._dodge_phase = 'idle'
+        self._dodge_cooldown = False
+        self._original_pos = None
+
+    def _poll_mouse(self):
+        global_pos = QCursor.pos()
+        inside = self.geometry().contains(global_pos)
+        if inside and not self._mouse_inside:
+            self._mouse_inside = True
+            self._schedule_dodge()
+        elif not inside:
+            self._mouse_inside = False
+
+    def _start_dodge(self):
+        if self._dodge_cooldown:
+            return
+
+        self._original_pos = self.pos()
+        screen = QApplication.primaryScreen().geometry()
+        screen_center = screen.center()
+        window_center = self.geometry().center()
+
+        dx = screen_center.x() - window_center.x()
+        dy = screen_center.y() - window_center.y()
+
+        dist = (dx * dx + dy * dy) ** 0.5
+        if dist < 5:
+            return
+
+        dodge_dist = min(500, dist * 1.25)
+        self._dodge_target = QPoint(
+            self._original_pos.x() + int(dx / dist * dodge_dist),
+            self._original_pos.y() + int(dy / dist * dodge_dist),
+        )
+
+        # Clamp to screen
+        self._dodge_target.setX(max(0, min(screen.width() - self.width(), self._dodge_target.x())))
+        self._dodge_target.setY(max(0, min(screen.height() - self.height(), self._dodge_target.y())))
+
+        self._dodge_start = QPoint(self._original_pos)
+        self._dodge_step_i = 0
+        self._dodge_cooldown = True
+        self._dodge_phase = 'dodging'
+        self._dodge_anim.start(16)
+
+    def _dodge_anim_step(self):
+        self._dodge_step_i += 1
+
+        if self._dodge_phase == 'dodging':
+            total = 8
+            if self._dodge_step_i >= total:
+                self._dodge_anim.stop()
+                self.move(self._dodge_target)
+                self._dodge_phase = 'cooldown'
+                self._dodge_return.start(5000)
+                return
+            t = self._dodge_step_i / total
+            eased = 1.0 - (1.0 - t) ** 3
+            x = self._dodge_start.x() + (self._dodge_target.x() - self._dodge_start.x()) * eased
+            y = self._dodge_start.y() + (self._dodge_target.y() - self._dodge_start.y()) * eased
+            self.move(int(x), int(y))
+
+        elif self._dodge_phase == 'returning':
+            total = 20
+            if self._dodge_step_i >= total:
+                self._dodge_anim.stop()
+                self.move(self._return_target)
+                self._original_pos = None
+                self._dodge_phase = 'idle'
+                self._dodge_cooldown = False
+                return
+            t = self._dodge_step_i / total
+            eased = 1.0 - (1.0 - t) ** 3
+            x = self._return_start.x() + (self._return_target.x() - self._return_start.x()) * eased
+            y = self._return_start.y() + (self._return_target.y() - self._return_start.y()) * eased
+            self.move(int(x), int(y))
+
+    def _return_from_dodge(self):
+        if self._original_pos is None:
+            self._dodge_phase = 'idle'
+            self._dodge_cooldown = False
+            return
+        self._return_start = QPoint(self.pos())
+        self._return_target = QPoint(self._original_pos)
+        self._dodge_step_i = 0
+        self._dodge_phase = 'returning'
+        self._dodge_anim.start(16)
 
     def resize_by_factor(self, factor):
         current = self.size()
