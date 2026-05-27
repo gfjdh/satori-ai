@@ -271,6 +271,10 @@
         proactiveEventSource.addEventListener('done', function(e) {
             handleSSEEvent('done', e.data);
         });
+        proactiveEventSource.addEventListener('reload', function(e) {
+            console.log('--- Received reload event, reloading window ---');
+            window.location.reload();
+        });
         proactiveEventSource.addEventListener('error', function(e) {
             if (e.data) {
                 handleSSEEvent('error', e.data);

@@ -159,4 +159,78 @@ export const dbApi = {
   }
 }
 
+export interface StageDefinition {
+  min: number
+  max: number
+  name: string
+  prompt: string
+}
+
+export interface CharacterConfig {
+  id: string
+  name: string
+  personality: string
+  speechLanguage?: string
+  subtitleLanguage?: string
+  characterInfo?: string
+  dialogueRequirements?: string
+  emotionRegressionRate?: number
+  affinityStages?: Record<string, StageDefinition[]>
+  emotionStages?: Record<string, StageDefinition[]>
+  live2d?: Record<string, any>
+}
+
+export interface CharacterSummary {
+  id: string
+  name: string
+  personality: string
+  hasLive2D: boolean
+  modelFile: string | null
+  hasTTS: boolean
+  ttsConfigFile: string | null
+  updatedAt: string | null
+  isCurrent: boolean
+}
+
+function zipHeaders(file: File) {
+  return {
+    headers: {
+      'Content-Type': 'application/zip',
+      'X-Archive-Name': encodeURIComponent(file.name)
+    }
+  }
+}
+
+export const characterApi = {
+  list: () => api.get<CharacterSummary[]>('/characters'),
+
+  get: (id: string) => api.get<CharacterConfig>(`/characters/${id}`),
+
+  getCurrent: () => api.get<CharacterConfig>('/characters/current'),
+
+  create: (data: CharacterConfig) => api.post<CharacterConfig>('/characters', data),
+
+  update: (id: string, data: Partial<CharacterConfig>) => api.put<CharacterConfig>(`/characters/${id}`, data),
+
+  delete: (id: string) => api.delete(`/characters/${id}`),
+
+  activate: (id: string) => api.post(`/characters/${id}/activate`),
+
+  uploadLive2D: (id: string, file: File) => {
+    return api.post<CharacterSummary>(`/characters/${id}/live2d`, file, zipHeaders(file))
+  },
+  uploadTTS: (id: string, file: File) => {
+    return api.post<CharacterSummary>(`/characters/${id}/tts`, file, zipHeaders(file))
+  },
+
+  importArchive: (file: File, overwrite = false) => {
+    return api.post<CharacterSummary>('/characters/import/archive', file, {
+      ...zipHeaders(file),
+      params: { overwrite }
+    })
+  },
+
+  exportArchiveUrl: (id: string) => `/api/characters/${encodeURIComponent(id)}/export`
+}
+
 export default api

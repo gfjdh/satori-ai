@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as http from 'http';
 import * as https from 'https';
+import { logDb } from '../db/database.js';
 
 const CHARACTER_CARDS_DIR = path.join(process.cwd(), 'character-cards');
 
@@ -128,6 +129,13 @@ export function loadTTSConfig(characterId: string): TTSConfig {
     .filter(f => f.endsWith('.json') && f !== 'ONNX_USAGE.md' && f !== 'emotions.json');
 
   if (configFiles.length === 0) {
+    logDb.insert({
+      'id': crypto.randomUUID(),
+      level: 'warn',
+      category: 'TTS',
+      content: `No TTS config found for character: ${characterId}`,
+      createdAt: new Date()
+    });
     throw new Error(`No TTS config found for character: ${characterId}`);
   }
 
@@ -148,6 +156,33 @@ export function loadTTSConfig(characterId: string): TTSConfig {
 
   configCache.set(characterId, config);
   return config;
+}
+
+/**
+ * 切换Python后端的TTS模型
+ */
+export async function switchTTSModel(characterId: string): Promise<boolean> {
+  // 清理Node端缓存
+  configCache.delete(characterId);
+  emotionTextCache.delete(characterId);
+  
+  try {
+    const { data, statusCode } = await httpPost(TTS_SERVICE_HOST, TTS_SERVICE_PORT, '/api/switch_model', { character_id: characterId });
+    if (statusCode === 200 && (data as any)?.success) {
+      return true;
+    }
+    return false;
+  } catch (error) {
+    logDb.insert({
+      id: crypto.randomUUID(),
+      level: 'error',
+      category: 'TTS',
+      content: `Failed to switch TTS model for character ${characterId}: ${(error as Error).message}`,
+      createdAt: new Date()
+    });
+    
+    return false;
+  }
 }
 
 /**
