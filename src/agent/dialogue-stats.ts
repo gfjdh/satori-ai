@@ -4,21 +4,23 @@
 
 import { dialogueDb } from '../db/database.js';
 import { getCharacterName } from '../character/loader.js';
+import { getCurrentCharacterId } from '../character/knowledge.js';
 
 export function getDialogueStats(): string {
+  const characterId = getCurrentCharacterId();
   const now = new Date();
   const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
   const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-  const totalCount = dialogueDb.getTurnCount();
-  const yearCount = dialogueDb.getCountSince(oneYearAgo);
-  const monthCount = dialogueDb.getCountSince(oneMonthAgo);
-  const weekCount = dialogueDb.getCountSince(oneWeekAgo);
-  const dayCount = dialogueDb.getCountSince(oneDayAgo);
+  const totalCount = dialogueDb.getTurnCount(characterId);
+  const yearCount = dialogueDb.getDialogueCountSince(oneYearAgo, characterId);
+  const monthCount = dialogueDb.getDialogueCountSince(oneMonthAgo, characterId);
+  const weekCount = dialogueDb.getDialogueCountSince(oneWeekAgo, characterId);
+  const dayCount = dialogueDb.getDialogueCountSince(oneDayAgo, characterId);
 
-  const lastDialogue = dialogueDb.getLastDialogueTime();
+  const lastDialogue = dialogueDb.getLastDialogueTime(characterId);
   const timeSinceLast = lastDialogue
     ? Math.floor((now.getTime() - lastDialogue.getTime()) / 60000)
     : null;
@@ -46,7 +48,8 @@ export function getDialogueStats(): string {
 }
 
 export function getRecentDialoguesText(limit: number = 20): string {
-  const recentDialogues = dialogueDb.getRecent(limit);
+  const characterId = getCurrentCharacterId();
+  const recentDialogues = dialogueDb.getRecent(limit, characterId);
   return recentDialogues.reverse().map(d => {
     const time = d.createdAt.toISOString().replace('T', ' ').slice(0, 16);
     return d.userContent === '[Proactive]'

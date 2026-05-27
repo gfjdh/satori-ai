@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Memory } from '../types/index.js';
 import { generateAndStoreEmbedding } from '../retrieval/vector-search.js';
 import { getCharacterName } from '../character/loader.js';
+import { getCurrentCharacterId } from '../character/knowledge.js';
 
 // 当前话题追踪（不做逐轮总结，只在话题切换时归档）
 let currentTopicStartTime: Date | null = null;
@@ -45,7 +46,7 @@ class MemoryManager {
 
     const config = getLLMConfig();
 
-    const recentDialogues = dialogueDb.getSince(currentTopicStartTime);
+    const recentDialogues = dialogueDb.getCharacterDialogueSince(currentTopicStartTime, getCurrentCharacterId());
     if (recentDialogues.length <= 5) return false;
 
     const dialogueText = recentDialogues.map(d =>
@@ -80,7 +81,7 @@ ${dialogueText}
     if (!currentTopicStartTime) return;
 
     const now = new Date();
-    const dialogues = dialogueDb.getSince(currentTopicStartTime);
+    const dialogues = dialogueDb.getCharacterDialogueSince(currentTopicStartTime, getCurrentCharacterId());
     if (dialogues.length === 0) return;
 
     const dialogueText = dialogues.map(d =>
@@ -373,7 +374,7 @@ ${memoryText}
       : new Date(0); // 1970-01-01 表示全量汇总
 
     // 2. 查询分界线后的所有对话
-    const unarchivedDialogues = dialogueDb.getSince(cutoffDate);
+    const unarchivedDialogues = dialogueDb.getAllDialogueSince(cutoffDate);
     if (unarchivedDialogues.length === 0) {
       return;
     }

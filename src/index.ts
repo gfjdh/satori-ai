@@ -12,6 +12,7 @@ import { skillEngine } from './skills/engine.js';
 import { taskDb, logDb, stateDb } from './db/database.js';
 import { dialogueDb } from './db/database.js';
 import { loadDefaultCharacter } from './character/loader.js';
+import { getCurrentCharacterId } from './character/knowledge.js';
 import { proactiveAgent } from './agent/proactive-agent.js';
 import { imageAnalysis } from './skills/image-analysis/index.js';
 import { SSEMessage } from './types/index.js';
@@ -62,7 +63,7 @@ app.get('/api/state', (req: Request, res: Response) => {
 app.get('/api/dialogues', (req: Request, res: Response) => {
   try {
     const limit = parseInt(req.query.limit as string) || 20;
-    const dialogues = dialogueDb.getRecent(limit);
+    const dialogues = dialogueDb.getRecent(limit, getCurrentCharacterId());
     res.json(dialogues);
   } catch (error) {
     res.status(500).json({ error: String(error) });
