@@ -301,7 +301,16 @@ ${memoryText}
     const latestSeason = memoryDb.getByGranularity('season', 1);
     const latestYear = memoryDb.getByGranularity('year', 1);
 
-    const fmt = (m: Memory): string => m.userState ? `- ${m.content}（此时段用户状态: ${m.userState}）` : `- ${m.content}`;
+    const formatTime = (d: Date) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+
+    const fmt = (m: Memory): string => {
+      const timeStr = m.granularity === 'topic'
+        ? `(${formatTime(m.periodEnd)}) `
+        : '';
+      return m.userState
+        ? `- ${timeStr}${m.content}（此时段用户状态: ${m.userState}）`
+        : `- ${timeStr}${m.content}`;
+    };
 
     // 自上次日总结以来，所有 topic 粒度记忆
     const dayCutoff = latestDay.length > 0 ? latestDay[0].periodEnd : new Date(0);
