@@ -1,4 +1,4 @@
-import { stateDb, logDb } from '../db/database.js';
+import { stateDb, logDb, now } from '../db/database.js';
 import { callLLM, getLLMConfig } from '../api/llm.js';
 import { getCurrentCharacterId } from '../character/knowledge.js';
 import type { UserProfile, UserProfileEntry, Memory } from '../types/index.js';
@@ -72,7 +72,7 @@ class UserProfileManager {
     topicMemories: Memory[]
   ): Promise<void> {
     const profile = this.getProfile();
-    const now = new Date().toISOString();
+    const nowIso = now().toISOString();
 
     const topicsText = topicMemories
       .map(m => {
@@ -111,14 +111,14 @@ ${topicsText}
           level: 'warn',
           category: 'user_profile',
           content: `Failed to parse LLM response as JSON: ${response.content.slice(0, 200)}`,
-          createdAt: new Date()
+          createdAt: now()
         });
         return;
       }
 
       const delta = JSON.parse(jsonMatch[0]);
-      this.applyDelta(profile, delta, now);
-      profile.lastSummarizedAt = now;
+      this.applyDelta(profile, delta, nowIso);
+      profile.lastSummarizedAt = nowIso;
       this.saveProfile(profile);
 
       const addedCount = delta.added?.length ?? 0;
@@ -129,7 +129,7 @@ ${topicsText}
         level: 'info',
         category: 'user_profile',
         content: `Profile updated: +${addedCount} ~${modifiedCount} -${deletedCount}, total ${profile.entries.length} entries`,
-        createdAt: new Date()
+        createdAt: now()
       });
     } catch (error) {
       logDb.insert({
@@ -137,7 +137,7 @@ ${topicsText}
         level: 'error',
         category: 'user_profile',
         content: `Failed to summarize profile: ${error}`,
-        createdAt: new Date()
+        createdAt: now()
       });
     }
   }

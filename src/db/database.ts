@@ -55,7 +55,7 @@ function migrateToUTC8(): void {
     }
     db.prepare(
       `INSERT OR REPLACE INTO system_state (id, character_id, value, updated_at) VALUES ('db_tz_migrated', '__system__', 'utc8', ?)`
-    ).run(new Date().toISOString());
+    ).run(now().toISOString());
   });
 
   migrate();

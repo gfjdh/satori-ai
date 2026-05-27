@@ -821,7 +821,7 @@ async function executeProactiveInteraction(signal: AbortSignal): Promise<void> {
 
 function calculateNextRun(cronExpr: string): Date {
   // 简化实现：每分钟检查一次
-  return new Date(Date.now() + 60 * 1000);
+  return new Date(now().getTime() + 60 * 1000);
 }
 
 // ========== 启动 ==========

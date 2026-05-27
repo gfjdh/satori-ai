@@ -142,7 +142,7 @@ export function createAnalysisSession(
             const params = JSON.parse(jsonMatch[0]);
             const result = await skillEngine.executeSkill(skillName, {
               ...params,
-              timestamp: new Date().toISOString()
+              timestamp: now().toISOString()
             });
             const resultText = typeof result === 'string' ? result : JSON.stringify(result);
             allRawFindings += `\n[${skillName} 执行结果]\n${resultText}\n`;
