@@ -2,17 +2,17 @@
  * 对话统计
  */
 
-import { dialogueDb } from '../db/database.js';
+import { dialogueDb, now } from '../db/database.js';
 import { getCharacterName } from '../character/loader.js';
 import { getCurrentCharacterId } from '../character/knowledge.js';
 
 export function getDialogueStats(): string {
   const characterId = getCurrentCharacterId();
-  const now = new Date();
-  const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
-  const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const nowTime = now();
+  const oneYearAgo = new Date(nowTime.getTime() - 365 * 24 * 60 * 60 * 1000);
+  const oneMonthAgo = new Date(nowTime.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const oneWeekAgo = new Date(nowTime.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const oneDayAgo = new Date(nowTime.getTime() - 24 * 60 * 60 * 1000);
 
   const totalCount = dialogueDb.getTurnCount(characterId);
   const yearCount = dialogueDb.getDialogueCountSince(oneYearAgo, characterId);
@@ -22,7 +22,7 @@ export function getDialogueStats(): string {
 
   const lastDialogue = dialogueDb.getLastDialogueTime(characterId);
   const timeSinceLast = lastDialogue
-    ? Math.floor((now.getTime() - lastDialogue.getTime()) / 60000)
+    ? Math.floor((nowTime.getTime() - lastDialogue.getTime()) / 60000)
     : null;
 
   let stats = `## 对话统计

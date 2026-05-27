@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { Skill, SkillMeta } from '../types/index.js';
-import { logDb } from '../db/database.js';
+import { logDb, now } from '../db/database.js';
 
 const SKILLS_ROOT = path.join(process.cwd(), 'src', 'skills');
 
@@ -65,10 +65,10 @@ class SkillEngine {
             const meta = this.parseSkillMeta(skillFile);
             if (meta) {
               this.skills.set(meta.name, meta);
-              logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Loaded skill: ${meta.name}`, createdAt: new Date() });
+              logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Loaded skill: ${meta.name}`, createdAt: now() });
             }
           } catch (err) {
-            logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'agent', content: `Failed to load skill ${entry.name}: ${err}`, createdAt: new Date() });
+            logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'agent', content: `Failed to load skill ${entry.name}: ${err}`, createdAt: now() });
           }
         }
       }
@@ -225,7 +225,7 @@ class SkillEngine {
         throw new Error(`No handler function found in script: ${path.basename(scriptPath)}`);
       }
     } catch (error) {
-      logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'agent', content: `Failed to execute skill ${skillName}: ${error}`, createdAt: new Date() });
+      logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'agent', content: `Failed to execute skill ${skillName}: ${error}`, createdAt: now() });
       throw error;
     } finally {
       // 更新skill缓存：将该skill移到recentSkills末尾（最新）

@@ -5,6 +5,8 @@
  * 静态指令放 system 消息（KV cache 友好），动态上下文放 user 消息。
  */
 
+import { now } from '../db/database.js';
+
 // ========== 工具函数 ==========
 
 /** 时段映射：凌晨0-5 / 清晨6-7 / 上午8-11 / 中午12-13 / 下午14-17 / 傍晚18-19 / 晚上20-22 / 深夜23 */
@@ -20,12 +22,12 @@ function getPeriod(hour: number): string {
 }
 
 function formatCurrentTime(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth() + 1;
-  const d = now.getDate();
-  const h = now.getHours();
-  const min = now.getMinutes().toString().padStart(2, '0');
+  const n = now();
+  const y = n.getUTCFullYear();
+  const m = n.getUTCMonth() + 1;
+  const d = n.getUTCDate();
+  const h = n.getUTCHours();
+  const min = String(n.getUTCMinutes()).padStart(2, '0');
   const period = getPeriod(h);
   return `${y}年${m}月${d}日${period}${h}点${min}分`;
 }

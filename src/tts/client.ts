@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as http from 'http';
 import * as https from 'https';
-import { logDb } from '../db/database.js';
+import { logDb, now } from '../db/database.js';
 
 const CHARACTER_CARDS_DIR = path.join(process.cwd(), 'character-cards');
 
@@ -134,7 +134,7 @@ export function loadTTSConfig(characterId: string): TTSConfig {
       level: 'warn',
       category: 'TTS',
       content: `No TTS config found for character: ${characterId}`,
-      createdAt: new Date()
+      createdAt: now()
     });
     throw new Error(`No TTS config found for character: ${characterId}`);
   }
@@ -178,7 +178,7 @@ export async function switchTTSModel(characterId: string): Promise<boolean> {
       level: 'error',
       category: 'TTS',
       content: `Failed to switch TTS model for character ${characterId}: ${(error as Error).message}`,
-      createdAt: new Date()
+      createdAt: now()
     });
     
     return false;

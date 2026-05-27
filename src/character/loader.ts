@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { logDb } from '../db/database.js';
+import { logDb, now } from '../db/database.js';
 import { setCurrentCharacterId } from './knowledge.js';
 
 let cachedName = '';
@@ -46,7 +46,7 @@ export function loadCharacter(characterId: string): CharacterConfig | null {
   const cardPath = path.join(CHARACTER_CARDS_DIR, characterId, 'character.json');
 
   if (!fs.existsSync(cardPath)) {
-    logDb.insert({ id: crypto.randomUUID(), level: 'warn', category: 'agent', content: `Character card not found: ${characterId}`, createdAt: new Date() });
+    logDb.insert({ id: crypto.randomUUID(), level: 'warn', category: 'agent', content: `Character card not found: ${characterId}`, createdAt: now() });
     return null;
   }
 
@@ -55,16 +55,16 @@ export function loadCharacter(characterId: string): CharacterConfig | null {
     const config = JSON.parse(content);
 
     if (!config.id || !config.name || !config.personality) {
-      logDb.insert({ id: crypto.randomUUID(), level: 'warn', category: 'agent', content: `Invalid character card: ${characterId}, missing required fields`, createdAt: new Date() });
+      logDb.insert({ id: crypto.randomUUID(), level: 'warn', category: 'agent', content: `Invalid character card: ${characterId}, missing required fields`, createdAt: now() });
       return null;
     }
 
     setCurrentCharacterId(config.id);
     cachedName = config.name;
-    logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Loaded character: ${config.name}`, createdAt: new Date() });
+    logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Loaded character: ${config.name}`, createdAt: now() });
     return config as CharacterConfig;
   } catch (error) {
-    logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'agent', content: `Failed to load character ${characterId}: ${error}`, createdAt: new Date() });
+    logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'agent', content: `Failed to load character ${characterId}: ${error}`, createdAt: now() });
     return null;
   }
 }
@@ -78,7 +78,7 @@ export function loadDefaultCharacter(): CharacterConfig {
     }
   }
 
-  logDb.insert({ id: crypto.randomUUID(), level: 'warn', category: 'agent', content: 'No character card found, using built-in defaults', createdAt: new Date() });
+  logDb.insert({ id: crypto.randomUUID(), level: 'warn', category: 'agent', content: 'No character card found, using built-in defaults', createdAt: now() });
   const defaultConfig = {
     id: 'default',
     name: '助手',

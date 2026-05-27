@@ -7,7 +7,7 @@
  * v5: 接受 ChatMessage[] 直接调用，消息构建由 unified-agent 负责。
  */
 
-import { logDb } from '../db/database.js';
+import { logDb, now } from '../db/database.js';
 import { callLLMStream, getLLMConfig } from '../api/llm.js';
 import { v4 as uuidv4 } from 'uuid';
 import { parseSegment } from './segment-utils.js';
@@ -68,6 +68,6 @@ export async function* streamPolisherSegments(
     level: 'debug',
     category: 'agent',
     content: `[Polisher ${logLabel || ''}]:\n${fullResponse}`,
-    createdAt: new Date()
+    createdAt: now()
   });
 }

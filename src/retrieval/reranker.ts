@@ -4,7 +4,7 @@
  */
 
 import StringSimilarity from 'string-similarity';
-import { logDb } from '../db/database.js';
+import { logDb, now } from '../db/database.js';
 import { v4 as uuidv4 } from 'uuid';
 import jieba from 'nodejieba';
 
@@ -107,7 +107,7 @@ export function rerankWithJieba(
     level: 'debug',
     category: 'retrieval',
     content: `[Reranker] 重排: "${query.substring(0, 30)}...", 候选: ${candidates.length}, 耗时: ${latency}ms, top${topK}`,
-    createdAt: new Date()
+    createdAt: now()
   });
 
   return results.slice(0, topK);
@@ -167,7 +167,7 @@ export function keywordSearch(
     level: 'debug',
     category: 'retrieval',
     content: `[Reranker] 关键词检索: "${query.substring(0, 30)}...", 候选: ${items.length}, 耗时: ${latency}ms`,
-    createdAt: new Date()
+    createdAt: now()
   });
 
   return results.slice(0, topK);

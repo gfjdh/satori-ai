@@ -9,7 +9,7 @@
  */
 
 import { analyzeImage, captureAndAnalyze } from './client.js';
-import { logDb } from '../../db/database.js';
+import { logDb, now } from '../../db/database.js';
 
 interface ImageAnalysisParams {
   vllmMode?: string;
@@ -37,7 +37,7 @@ export async function imageAnalysis(params: ImageAnalysisParams): Promise<string
       level: 'error',
       category: 'image_analysis',
       content: JSON.stringify({ input: query ?? '', elapsed_ms: elapsed, error: result.error }),
-      createdAt: new Date(),
+      createdAt: now(),
     });
     throw new Error(`Image analysis failed: ${result.error || 'unknown error'}`);
   }
@@ -57,7 +57,7 @@ export async function imageAnalysis(params: ImageAnalysisParams): Promise<string
     level: 'info',
     category: 'image_analysis',
     content: JSON.stringify({ input: query ?? '', elapsed_ms: elapsed, output: output }),
-    createdAt: new Date(),
+    createdAt: now(),
   });
 
   return output;

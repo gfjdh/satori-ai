@@ -9,7 +9,7 @@
  */
 
 import { skillEngine } from '../skills/engine.js';
-import { logDb } from '../db/database.js';
+import { logDb, now } from '../db/database.js';
 import { callLLMStream, getLLMConfig } from '../api/llm.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { ChatMessage } from './prompts.js';
@@ -89,7 +89,7 @@ export function createAnalysisSession(
         level: 'debug',
         category: 'agent',
         content: `[Analysis Round #${iteration}]:\n${fullResponse}`,
-        createdAt: new Date()
+        createdAt: now()
       });
 
       // DONE
@@ -156,7 +156,7 @@ export function createAnalysisSession(
               level: 'error',
               category: 'agent',
               content: `Skill execution failed: ${e}`,
-              createdAt: new Date()
+              createdAt: now()
             });
           }
         }

@@ -15,6 +15,55 @@ if (!fs.existsSync(dataDir)) {
 const db: DatabaseType = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 
+// ========== 东八区时间体系 ==========
+const TZ_OFFSET = 8 * 60 * 60 * 1000;
+
+/** 东八区"现在" — 所有入库/比较用时间统一走这个工厂 */
+export function now(): Date {
+  return new Date(Date.now() + TZ_OFFSET);
+}
+
+/** 一次性迁移：将数据库中所有UTC时间字段偏移+8h */
+function migrateToUTC8(): void {
+  const row = db.prepare(
+    "SELECT value FROM system_state WHERE id = 'db_tz_migrated' AND character_id = '__system__'"
+  ).get() as { value: string } | undefined;
+  if (row?.value === 'utc8') return;
+
+  const shift = (iso: string) => new Date(new Date(iso).getTime() + TZ_OFFSET).toISOString();
+
+  const tables: [string, string[]][] = [
+    ['dialogues', ['created_at']],
+    ['memories', ['period_start', 'period_end', 'created_at']],
+    ['tasks', ['last_run', 'next_run', 'created_at']],
+    ['system_state', ['updated_at']],
+    ['knowledge_base', ['created_at']],
+    ['logs', ['created_at']],
+  ];
+
+  const migrate = db.transaction(() => {
+    for (const [table, cols] of tables) {
+      for (const col of cols) {
+        const rows = db.prepare(
+          `SELECT rowid, ${col} FROM ${table} WHERE ${col} IS NOT NULL`
+        ).all() as any[];
+        const update = db.prepare(`UPDATE ${table} SET ${col} = ? WHERE rowid = ?`);
+        for (const r of rows) {
+          if (r[col]) update.run(shift(r[col]), r.rowid);
+        }
+      }
+    }
+    db.prepare(
+      `INSERT OR REPLACE INTO system_state (id, character_id, value, updated_at) VALUES ('db_tz_migrated', '__system__', 'utc8', ?)`
+    ).run(new Date().toISOString());
+  });
+
+  migrate();
+  console.log('[DB] Timezone migrated to UTC+8.');
+}
+
+migrateToUTC8();
+
 // ========== 初始化表结构 ==========
 db.exec(`
   -- 对话原始记录表
@@ -352,11 +401,11 @@ export const taskDb = {
   },
 
   getDueTasks(): Task[] {
-    const now = new Date().toISOString();
+    const nowISO = now().toISOString();
     const stmt = db.prepare(`
       SELECT * FROM tasks WHERE enabled = 1 AND next_run <= ? ORDER BY next_run ASC
     `);
-    const rows = stmt.all(now) as any[];
+    const rows = stmt.all(nowISO) as any[];
     return rows.map(row => ({
       id: row.id,
       name: row.name,
@@ -402,7 +451,7 @@ export const stateDb = {
       INSERT OR REPLACE INTO system_state (id, character_id, value, updated_at)
       VALUES (?, ?, ?, ?)
     `);
-    stmt.run(key, characterId, value, new Date().toISOString());
+    stmt.run(key, characterId, value, now().toISOString());
   },
 
   getAffinity(characterId: string): AffinityState | null {
@@ -516,7 +565,7 @@ export const knowledgeDb = {
           entry.content,
           entry.embedding ?? null,
           entry.source,
-          new Date().toISOString()
+          now().toISOString()
         );
         count++;
       }
@@ -577,7 +626,7 @@ export const logDb = {
         fs.mkdirSync(logDir, { recursive: true });
       }
 
-      const date = new Date().toISOString().slice(0, 16).replace(/:/g, '-');
+      const date = now().toISOString().slice(0, 16).replace(/:/g, '-');
       const logFile = path.join(logDir, `${date}.txt`);
 
       const stmt = db.prepare('SELECT * FROM logs ORDER BY created_at ASC');

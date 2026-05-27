@@ -5,7 +5,7 @@
 
 import jieba from 'nodejieba';
 import StringSimilarity from 'string-similarity';
-import { logDb } from '../db/database.js';
+import { logDb, now } from '../db/database.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface BM25Candidate {
@@ -146,7 +146,7 @@ export function rerankWithBM25(
     level: 'debug',
     category: 'retrieval',
     content: `[BM25] rerank 查询: "${query.substring(0, 30)}...", 候选: ${candidates.length}, 耗时: ${latency}ms, top${topK}`,
-    createdAt: new Date()
+    createdAt: now()
   });
 
   return results.slice(0, topK);

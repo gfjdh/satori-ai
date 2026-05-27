@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { logDb } from '../db/database.js';
+import { logDb, now } from '../db/database.js';
 import * as stringSimilarity from 'string-similarity';
 
 const CHARACTER_KNOWLEDGE_DIR = path.join(process.cwd(), 'character-cards');
@@ -82,12 +82,12 @@ export function loadCharacterKnowledge(characterId: string): CharacterKnowledgeI
         }
       }
     } catch (error) {
-      logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'agent', content: `Failed to load ${filePath}: ${error}`, createdAt: new Date() });
+      logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'agent', content: `Failed to load ${filePath}: ${error}`, createdAt: now() });
     }
   }
 
   knowledgeCache.set(characterId, items);
-  logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Loaded ${items.length} knowledge items for ${characterId}`, createdAt: new Date() });
+  logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Loaded ${items.length} knowledge items for ${characterId}`, createdAt: now() });
   return items;
 }
 
@@ -221,7 +221,7 @@ export function searchCharacterKnowledgeWithFormat(
 ): CharacterKnowledgeSearchResult[] {
   const results = searchCharacterKnowledge(characterId, keywords, limit) as (CharacterKnowledgeItem & { relevance: number })[];
 
-  logDb.insert({ id: crypto.randomUUID(), level: 'debug', category: 'agent', content: `[searchCharacterKnowledgeWithFormat] results.length=${results.length}, first.content=${results[0]?.content.substring(0, 100)}`, createdAt: new Date() });
+  logDb.insert({ id: crypto.randomUUID(), level: 'debug', category: 'agent', content: `[searchCharacterKnowledgeWithFormat] results.length=${results.length}, first.content=${results[0]?.content.substring(0, 100)}`, createdAt: now() });
 
   return results.map(item => ({
     source: 'character' as const,

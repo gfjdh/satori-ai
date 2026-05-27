@@ -7,7 +7,7 @@
 
 import { stateManager } from '../state/manager.js';
 import { memoryManager } from '../memory/manager.js';
-import { dialogueDb, logDb } from '../db/database.js';
+import { dialogueDb, logDb, now } from '../db/database.js';
 import { callLLMStream, getLLMConfig } from '../api/llm.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Dialogue, SSEMessage, Memory } from '../types/index.js';
@@ -137,7 +137,7 @@ export class ProactiveAgent {
         characterId: this.character.id,
         userContent: '[Proactive]',
         aiContent: finalText,
-        createdAt: new Date()
+        createdAt: now()
       };
       dialogueDb.insert(dialogue);
 
@@ -207,7 +207,7 @@ ${proactiveText}
           level: 'error',
           category: 'agent',
           content: `Proactive state update error: ${error}`,
-          createdAt: new Date()
+          createdAt: now()
         });
       }
     });

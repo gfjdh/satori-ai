@@ -1,5 +1,5 @@
 import { LLMRequest, LLMResponse } from '../types/index.js';
-import { logDb } from '../db/database.js';
+import { logDb, now } from '../db/database.js';
 import { v4 as uuidv4 } from 'uuid';
 import dotenv from 'dotenv';
 import { getCharacterName } from '../character/loader.js';
@@ -43,7 +43,7 @@ export async function callLLM(request: LLMRequest, logRequest = true, signal?: A
     fullUrl = config.baseURL;
   }
 
-  logDb.insert({ id: uuidv4(), level: 'debug', category: 'api_call', content: `Request URL: ${fullUrl}`, createdAt: new Date() });
+  logDb.insert({ id: uuidv4(), level: 'debug', category: 'api_call', content: `Request URL: ${fullUrl}`, createdAt: now() });
 
   try {
     const requestBody: Record<string, unknown> = {

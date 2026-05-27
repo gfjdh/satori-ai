@@ -13,7 +13,7 @@
 
 import { stateManager } from '../state/manager.js';
 import { memoryManager } from '../memory/manager.js';
-import { dialogueDb, logDb } from '../db/database.js';
+import { dialogueDb, logDb, now } from '../db/database.js';
 import { callLLMStream, getLLMConfig } from '../api/llm.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Dialogue, SSEMessage } from '../types/index.js';
@@ -47,7 +47,7 @@ class UnifiedAgent {
       level: 'info',
       category: 'agent',
       content: `[UnifiedAgent] User input: ${userInput}`,
-      createdAt: new Date()
+      createdAt: now()
     });
 
     const config = getLLMConfig();
@@ -258,7 +258,7 @@ class UnifiedAgent {
         characterId: this.character.id,
         userContent: userInput,
         aiContent: finalText,
-        createdAt: new Date()
+        createdAt: now()
       };
       dialogueDb.insert(dialogue);
 
@@ -330,7 +330,7 @@ class UnifiedAgent {
           level: 'error',
           category: 'agent',
           content: `State update error: ${error}`,
-          createdAt: new Date()
+          createdAt: now()
         });
       }
     });

@@ -3,7 +3,7 @@
  * 通过 HTTP 调用 Python embedding 服务（bert-base-chinese）
  */
 
-import { logDb } from '../db/database.js';
+import { logDb, now } from '../db/database.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const EMBEDDING_SERVICE_URL = process.env.EMBEDDING_SERVICE_URL || 'http://127.0.0.1:7860';
@@ -36,7 +36,7 @@ class EmbeddingManager {
         level: 'info',
         category: 'embedding',
         content: '[EmbeddingManager] 检查 embedding 服务连接...',
-        createdAt: new Date()
+        createdAt: now()
       });
 
       const response = await fetch(`${EMBEDDING_SERVICE_URL}/health`, {
@@ -51,7 +51,7 @@ class EmbeddingManager {
           level: 'info',
           category: 'embedding',
           content: '[EmbeddingManager] embedding 服务已就绪',
-          createdAt: new Date()
+          createdAt: now()
         });
       } else {
         throw new Error(`Health check failed: ${response.status}`);
@@ -62,7 +62,7 @@ class EmbeddingManager {
         level: 'warn',
         category: 'embedding',
         content: `[EmbeddingManager] embedding 服务连接失败: ${error}。将使用关键词检索。`,
-        createdAt: new Date()
+        createdAt: now()
       });
       this.ready = false;
       // 不抛出错误，让系统降级到关键词检索
@@ -102,7 +102,7 @@ class EmbeddingManager {
       level: 'debug',
       category: 'embedding',
       content: `[EmbeddingManager] encode 耗时: ${latency}ms, 文本长度: ${text.length}`,
-      createdAt: new Date()
+      createdAt: now()
     });
 
     return embedding;
@@ -135,7 +135,7 @@ class EmbeddingManager {
       level: 'info',
       category: 'embedding',
       content: `[EmbeddingManager] encodeBatch 批量: ${texts.length} 条, 耗时: ${latency}ms, 均耗时: ${(latency / texts.length).toFixed(2)}ms/条`,
-      createdAt: new Date()
+      createdAt: now()
     });
 
     return result.embeddings;
@@ -172,7 +172,7 @@ class EmbeddingManager {
       level: 'debug',
       category: 'embedding',
       content: `[EmbeddingManager] search 耗时: ${latency}ms, 查询: "${query.substring(0, 30)}...", 结果: ${result.results.length}`,
-      createdAt: new Date()
+      createdAt: now()
     });
 
     return result.results;

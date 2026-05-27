@@ -12,7 +12,7 @@
  */
 
 import { vectorSearch } from '../../retrieval/vector-search.js';
-import { memoryDb, knowledgeDb, logDb } from '../../db/database.js';
+import { memoryDb, knowledgeDb, logDb, now } from '../../db/database.js';
 import { searchCharacterKnowledge, getCurrentCharacterId } from '../../character/knowledge.js';
 import { v4 as uuidv4 } from 'uuid';
 import StringSimilarity from 'string-similarity';
@@ -170,7 +170,7 @@ async function searchMemories(
       };
     });
   } catch (error) {
-    logDb.insert({ id: uuidv4(), level: 'warn', category: 'retrieval', content: `Memory vector search failed: ${error}`, createdAt: new Date() });
+    logDb.insert({ id: uuidv4(), level: 'warn', category: 'retrieval', content: `Memory vector search failed: ${error}`, createdAt: now() });
   }
 
   // 关键词检索：getAll + timeRange 预筛选 + bm25Score 排序
@@ -244,7 +244,7 @@ async function searchKnowledge(
       };
     });
   } catch (error) {
-    logDb.insert({ id: uuidv4(), level: 'warn', category: 'retrieval', content: `Knowledge vector search failed: ${error}`, createdAt: new Date() });
+    logDb.insert({ id: uuidv4(), level: 'warn', category: 'retrieval', content: `Knowledge vector search failed: ${error}`, createdAt: now() });
   }
 
   // 关键词检索：getAll + bm25Score 排序
@@ -305,7 +305,7 @@ function searchCharKnowledge(
       metadata: {}
     }));
   } catch (error) {
-    logDb.insert({ id: uuidv4(), level: 'warn', category: 'retrieval', content: `Character knowledge search failed: ${error}`, createdAt: new Date() });
+    logDb.insert({ id: uuidv4(), level: 'warn', category: 'retrieval', content: `Character knowledge search failed: ${error}`, createdAt: now() });
   }
 
   return charResults
@@ -341,7 +341,7 @@ function formatRetrievalContext(results: RetrievalResult[]): string {
 
 function formatDate(isoString: string): string {
   const d = new Date(isoString);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 }
 
 /**
@@ -379,19 +379,19 @@ export async function search(params: SearchParams): Promise<string> {
     try {
       memoryResults = await searchMemories(queryStr, keywordList, timeRange, k);
     } catch (error) {
-      logDb.insert({ id: uuidv4(), level: 'error', category: 'retrieval', content: `Memory search crashed: ${error}`, createdAt: new Date() });
+      logDb.insert({ id: uuidv4(), level: 'error', category: 'retrieval', content: `Memory search crashed: ${error}`, createdAt: now() });
     }
 
     try {
       knowledgeResults = await searchKnowledge(queryStr, keywordList, k);
     } catch (error) {
-      logDb.insert({ id: uuidv4(), level: 'error', category: 'retrieval', content: `Knowledge search crashed: ${error}`, createdAt: new Date() });
+      logDb.insert({ id: uuidv4(), level: 'error', category: 'retrieval', content: `Knowledge search crashed: ${error}`, createdAt: now() });
     }
 
     try {
       charResults = searchCharKnowledge(queryStr, keywordList, k);
     } catch (error) {
-      logDb.insert({ id: uuidv4(), level: 'error', category: 'retrieval', content: `Character knowledge search crashed: ${error}`, createdAt: new Date() });
+      logDb.insert({ id: uuidv4(), level: 'error', category: 'retrieval', content: `Character knowledge search crashed: ${error}`, createdAt: now() });
     }
 
     // 对记忆进行富化（前3条）
@@ -426,7 +426,7 @@ export async function search(params: SearchParams): Promise<string> {
 
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'agent', content: `SearchSkill failed: ${error}`, createdAt: new Date() });
+    logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'agent', content: `SearchSkill failed: ${error}`, createdAt: now() });
     return `[检索出错] ${errorMsg}`;
   }
 }

@@ -1,4 +1,4 @@
-import { memoryDb, logDb, dialogueDb } from '../db/database.js';
+import { memoryDb, logDb, dialogueDb, now } from '../db/database.js';
 import { stateManager } from '../state/manager.js';
 import { callLLM, getLLMConfig } from '../api/llm.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -37,7 +37,7 @@ class MemoryManager {
   // 确保当前话题有时间起点
   ensureTopicTracking(): void {
     if (!currentTopicStartTime) {
-      currentTopicStartTime = new Date();
+      currentTopicStartTime = now();
     }
   }
 
@@ -73,7 +73,7 @@ ${dialogueText}
       });
       return response.content.includes('切换了话题');
     } catch (error) {
-      logDb.insert({ id: uuidv4(), level: 'error', category: 'agent', content: `Failed to check topic switch: ${error}`, createdAt: new Date() });
+      logDb.insert({ id: uuidv4(), level: 'error', category: 'agent', content: `Failed to check topic switch: ${error}`, createdAt: now() });
       return false;
     }
   }
@@ -82,7 +82,7 @@ ${dialogueText}
   async archiveCurrentTopic(): Promise<void> {
     if (!currentTopicStartTime) return;
 
-    const now = new Date();
+    const nowTime = now();
     const dialogues = dialogueDb.getCharacterDialogueSince(currentTopicStartTime, getCurrentCharacterId());
     if (dialogues.length === 0) return;
 
@@ -119,22 +119,22 @@ ${ARCHIVE_PROMPT}`;
         userState: parsed.user_state || null,
         periodStart: firstDialogue.createdAt,
         periodEnd: lastDialogue.createdAt,
-        createdAt: now
+        createdAt: nowTime
       };
 
       memoryDb.insert(memory);
 
       // 异步生成 embedding
       generateAndStoreEmbedding('memory', memoryId, parsed.summary).catch(err => {
-        logDb.insert({ id: uuidv4(), level: 'warn', category: 'embedding', content: `Failed to generate embedding for memory ${memoryId}: ${err}`, createdAt: new Date() });
+        logDb.insert({ id: uuidv4(), level: 'warn', category: 'embedding', content: `Failed to generate embedding for memory ${memoryId}: ${err}`, createdAt: now() });
       });
 
-      logDb.insert({ id: uuidv4(), level: 'info', category: 'agent', content: `Archived topic "${parsed.topic}" with ${dialogues.length} dialogues`, createdAt: now });
+      logDb.insert({ id: uuidv4(), level: 'info', category: 'agent', content: `Archived topic "${parsed.topic}" with ${dialogues.length} dialogues`, createdAt: nowTime });
 
       // 重置追踪状态，新话题从此刻开始
-      currentTopicStartTime = now;
+      currentTopicStartTime = nowTime;
     } catch (error) {
-      logDb.insert({ id: uuidv4(), level: 'error', category: 'agent', content: `Failed to archive topic: ${error}`, createdAt: new Date() });
+      logDb.insert({ id: uuidv4(), level: 'error', category: 'agent', content: `Failed to archive topic: ${error}`, createdAt: now() });
     }
   }
 
@@ -160,7 +160,7 @@ ${ARCHIVE_PROMPT}`;
 
   // 检查并执行各级别总结（每次心跳时调用）
   async checkAndSummarizeAll(): Promise<void> {
-    const now = new Date();
+    const nowTime = now();
 
     for (const config of GRANULARITY_CONFIGS) {
       // 只处理day/week/month/year，不处理topic（topic是被汇总的下级）
@@ -180,17 +180,17 @@ ${ARCHIVE_PROMPT}`;
         const earliestChild = this.getEarliestMemoryTime(config.childGranularity);
         if (!earliestChild) continue; // 没有子粒度记忆，不总结
 
-        const elapsed = now.getTime() - earliestChild.getTime();
+        const elapsed = nowTime.getTime() - earliestChild.getTime();
         if (elapsed < config.summaryThresholdMs) continue; // 子粒度时间未达阈值，不总结
 
         summaryStart = earliestChild;
       }
 
       // 检查是否达到总结条件（已过去足够时间）
-      const elapsed = now.getTime() - summaryStart.getTime();
+      const elapsed = nowTime.getTime() - summaryStart.getTime();
       if (elapsed >= config.summaryThresholdMs) {
         const gran = config.name as 'day' | 'week' | 'month' | 'year';
-        const result = await this.performSummaryFor(gran, config.childGranularity as 'topic' | 'day' | 'week' | 'month', summaryStart, now);
+        const result = await this.performSummaryFor(gran, config.childGranularity as 'topic' | 'day' | 'week' | 'month', summaryStart, nowTime);
         if (result && gran === 'day') {
           await userProfileManager.summarizeFromMemories(result.summaryContent, result.relevantMemories);
         }
@@ -263,7 +263,7 @@ ${memoryText}
 
         // 异步生成 embedding，不阻塞主进程
         generateAndStoreEmbedding('memory', memoryId, parsed.summary).catch(err => {
-          logDb.insert({ id: uuidv4(), level: 'warn', category: 'embedding', content: `Failed to generate embedding for summary ${memoryId}: ${err}`, createdAt: new Date() });
+          logDb.insert({ id: uuidv4(), level: 'warn', category: 'embedding', content: `Failed to generate embedding for summary ${memoryId}: ${err}`, createdAt: now() });
         });
 
         logDb.insert({ id: uuidv4(), level: 'info', category: 'agent', content: `Created ${granularity} summary with ${relevantMemories.length} sub-memories`, createdAt: endDate });
@@ -271,15 +271,23 @@ ${memoryText}
         return { summaryContent: parsed.summary, relevantMemories };
       }
     } catch (error) {
-      logDb.insert({ id: uuidv4(), level: 'error', category: 'agent', content: `Failed to create ${granularity} summary: ${error}`, createdAt: new Date() });
+      logDb.insert({ id: uuidv4(), level: 'error', category: 'agent', content: `Failed to create ${granularity} summary: ${error}`, createdAt: now() });
     }
     return null;
   }
 
-  // 格式化时间范围
+  // 格式化时间范围（DB 时间已迁移到 UTC+8，直接用 getUTC*() 取墙面时钟）
   private formatTimeRange(start: Date, end: Date | null): string {
-    const endTime = end ? end.toLocaleString('zh-CN') : '现在';
-    return `${start.toLocaleString('zh-CN')} - ${endTime}`;
+    const fmt = (d: Date): string => {
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(d.getUTCDate()).padStart(2, '0');
+      const h = String(d.getUTCHours()).padStart(2, '0');
+      const min = String(d.getUTCMinutes()).padStart(2, '0');
+      return `${y}/${m}/${day} ${h}:${min}`;
+    };
+    const endTime = end ? fmt(end) : '现在';
+    return `${fmt(start)} - ${endTime}`;
   }
 
   // 获取某粒度中在指定时间之后创建的记忆
@@ -410,7 +418,7 @@ ${ARCHIVE_PROMPT}
     // 5. 解析JSON响应
     const jsonMatch = response.content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      logDb.insert({ id: uuidv4(), level: 'error', category: 'agent', content: `recoverAndSummarizeUnarchived: failed to parse LLM response`, createdAt: new Date() });
+      logDb.insert({ id: uuidv4(), level: 'error', category: 'agent', content: `recoverAndSummarizeUnarchived: failed to parse LLM response`, createdAt: now() });
       return;
     }
 
@@ -429,20 +437,20 @@ ${ARCHIVE_PROMPT}
       userState: parsed.user_state || null,
       periodStart: firstDialogue.createdAt,
       periodEnd: lastDialogue.createdAt,
-      createdAt: new Date()
+      createdAt: now()
     };
 
     memoryDb.insert(memory);
 
     // 异步生成 embedding，不阻塞主进程
     generateAndStoreEmbedding('memory', memoryId, parsed.summary).catch(err => {
-      logDb.insert({ id: uuidv4(), level: 'warn', category: 'embedding', content: `Failed to generate embedding for recovered memory ${memoryId}: ${err}`, createdAt: new Date() });
+      logDb.insert({ id: uuidv4(), level: 'warn', category: 'embedding', content: `Failed to generate embedding for recovered memory ${memoryId}: ${err}`, createdAt: now() });
     });
 
-    logDb.insert({ id: uuidv4(), level: 'info', category: 'agent', content: `Recovered and summarized ${unarchivedDialogues.length} unarchived dialogues into topic: ${parsed.topic}`, createdAt: new Date() });
+    logDb.insert({ id: uuidv4(), level: 'info', category: 'agent', content: `Recovered and summarized ${unarchivedDialogues.length} unarchived dialogues into topic: ${parsed.topic}`, createdAt: now() });
 
     // 初始化当前话题追踪，新对话从此刻开始
-    currentTopicStartTime = new Date();
+    currentTopicStartTime = now();
   }
 }
 

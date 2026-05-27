@@ -4,8 +4,7 @@
  */
 
 import { embeddingManager } from '../embedding/manager.js';
-import { memoryDb, knowledgeDb } from '../db/database.js';
-import { logDb } from '../db/database.js';
+import { memoryDb, knowledgeDb, logDb, now } from '../db/database.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface VectorSearchResult {
@@ -72,7 +71,7 @@ export async function vectorSearch(
       level: 'debug',
       category: 'retrieval',
       content: `[VectorSearch] 无已存储 embedding 的条目，跳过向量检索`,
-      createdAt: new Date()
+      createdAt: now()
     });
     return [];
   }
@@ -98,7 +97,7 @@ export async function vectorSearch(
     level: 'debug',
     category: 'retrieval',
     content: `[VectorSearch] 查询: "${query.substring(0, 30)}...", 有embedding条目: ${items.length}, 结果: ${results.length}, 耗时: ${latency}ms`,
-    createdAt: new Date()
+    createdAt: now()
   });
 
   return results;

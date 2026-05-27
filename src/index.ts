@@ -9,8 +9,7 @@ import { embeddingManager } from './embedding/manager.js';
 import { stateManager } from './state/manager.js';
 import { memoryManager } from './memory/manager.js';
 import { skillEngine } from './skills/engine.js';
-import { taskDb, logDb, stateDb } from './db/database.js';
-import { dialogueDb } from './db/database.js';
+import { taskDb, logDb, stateDb, dialogueDb, now } from './db/database.js';
 import { loadDefaultCharacter, type CharacterConfig } from './character/loader.js';
 import { createCharacterRouter } from './character/api.js';
 import { getCurrentCharacterId } from './character/knowledge.js';
@@ -55,7 +54,7 @@ function applyCharacterRuntime(character: CharacterConfig): void {
   });
   // 通知终端：TTS服务更新角色
   switchTTSModel(character.id).catch(err => {
-    logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'tts', content: `Failed to switch TTS model for character ${character.name} (ID: ${character.id}): ${err}`, createdAt: new Date() });
+    logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'tts', content: `Failed to switch TTS model for character ${character.name} (ID: ${character.id}): ${err}`, createdAt: now() });
   });
   
   // 广播重载事件给Live2D组件
@@ -64,7 +63,7 @@ function applyCharacterRuntime(character: CharacterConfig): void {
     data: { characterId: character.id }
   });
   
-  logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Character loaded: ${character.name} (ID: ${character.id})`, createdAt: new Date() });
+  logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Character loaded: ${character.name} (ID: ${character.id})`, createdAt: now() });
   resetProactiveTimer();
 }
 
@@ -77,7 +76,7 @@ function applyCharacterUpdate(character: CharacterConfig): void {
     affinityStages: character.affinityStages,
     emotionStages: character.emotionStages
   });
-  logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Character config updated locally without reload: ${character.name} (ID: ${character.id})`, createdAt: new Date() });
+  logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Character config updated locally without reload: ${character.name} (ID: ${character.id})`, createdAt: now() });
 }
 
 // ========== 角色管理路由 ==========
@@ -405,7 +404,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     res.end();
     resetProactiveTimer();
   } catch (error) {
-    logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'agent', content: `Chat API Error: ${error}`, createdAt: new Date() });
+    logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'agent', content: `Chat API Error: ${error}`, createdAt: now() });
     sendSSE('error', { message: String(error) });
     res.end();
   } finally {
@@ -425,7 +424,7 @@ app.post('/api/log', (req: Request, res: Response) => {
       level: level || 'info',
       category: category || 'launcher',
       content: content || '',
-      createdAt: new Date()
+      createdAt: now()
     });
     res.json({ success: true });
   } catch (error) {
@@ -479,7 +478,7 @@ app.put('/api/proactive/config', (req: Request, res: Response) => {
       level: 'info',
       category: 'proactive',
       content: `Config updated: enabled=${existing.enabled}, min=${existing.minIntervalMinutes}min, max=${existing.maxIntervalMinutes}min`,
-      createdAt: new Date()
+      createdAt: now()
     });
 
     res.json({ success: true, config: existing });
@@ -495,7 +494,7 @@ app.post('/api/proactive/trigger', async (_req: Request, res: Response) => {
     level: 'info',
     category: 'proactive',
     content: `Manual trigger requested (clients=${proactiveSSEClients.length}, chatActive=${currentChatAbortController !== null})`,
-    createdAt: new Date()
+    createdAt: now()
   });
 
   if (proactiveSSEClients.length === 0) {
@@ -504,7 +503,7 @@ app.post('/api/proactive/trigger', async (_req: Request, res: Response) => {
       level: 'warn',
       category: 'proactive',
       content: 'Manual trigger rejected: no connected clients',
-      createdAt: new Date()
+      createdAt: now()
     });
     res.status(400).json({ error: '没有已连接的桌宠客户端' });
     return;
@@ -516,7 +515,7 @@ app.post('/api/proactive/trigger', async (_req: Request, res: Response) => {
       level: 'info',
       category: 'proactive',
       content: 'Aborting previous proactive interaction',
-      createdAt: new Date()
+      createdAt: now()
     });
     currentProactiveAbortController.abort();
     currentProactiveAbortController = null;
@@ -528,7 +527,7 @@ app.post('/api/proactive/trigger', async (_req: Request, res: Response) => {
       level: 'warn',
       category: 'proactive',
       content: 'Manual trigger rejected: chat in progress',
-      createdAt: new Date()
+      createdAt: now()
     });
     res.status(409).json({ error: '当前正在进行对话，请稍后再试' });
     return;
@@ -542,7 +541,7 @@ app.post('/api/proactive/trigger', async (_req: Request, res: Response) => {
     level: 'info',
     category: 'proactive',
     content: 'Manual trigger accepted, executing...',
-    createdAt: new Date()
+    createdAt: now()
   });
 
   res.json({ success: true, message: '主动对话已触发' });
@@ -556,7 +555,7 @@ app.post('/api/proactive/trigger', async (_req: Request, res: Response) => {
       level: 'error',
       category: 'proactive',
       content: `Manual proactive trigger failed: ${error}`,
-      createdAt: new Date()
+      createdAt: now()
     });
     broadcastProactiveMessage({ type: 'error', data: { message: String(error) } });
   } finally {
@@ -580,7 +579,7 @@ app.post('/api/launcher/state', (req: Request, res: Response) => {
     level: 'info',
     category: 'launcher',
     content: `Window visibility: ${visible ? 'visible' : 'hidden'}`,
-    createdAt: new Date()
+    createdAt: now()
   });
   res.json({ ok: true, visible: launcherWindowVisible });
 });
@@ -652,7 +651,7 @@ app.get('/api/proactive/stream', (req: Request, res: Response) => {
     level: 'info',
     category: 'proactive',
     content: `Proactive SSE client connected (total=${proactiveSSEClients.length})`,
-    createdAt: new Date()
+    createdAt: now()
   });
 
   req.on('close', () => {
@@ -662,7 +661,7 @@ app.get('/api/proactive/stream', (req: Request, res: Response) => {
       level: 'info',
       category: 'proactive',
       content: `Proactive SSE client disconnected (total=${proactiveSSEClients.length})`,
-      createdAt: new Date()
+      createdAt: now()
     });
   });
 });
@@ -688,7 +687,7 @@ function broadcastProactiveMessage(message: SSEMessage): void {
     try {
       client(message);
     } catch (error) {
-      logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'heartbeat', content: `Failed to send to client: ${error}`, createdAt: new Date() });
+      logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'heartbeat', content: `Failed to send to client: ${error}`, createdAt: now() });
     }
   }
 }
@@ -704,9 +703,9 @@ function startHeartbeat() {
       // 2. 检查定时任务
       const dueTasks = taskDb.getDueTasks();
       for (const task of dueTasks) {
-        logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'heartbeat', content: `Executing task: ${task.name}`, createdAt: new Date() });
+        logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'heartbeat', content: `Executing task: ${task.name}`, createdAt: now() });
         taskDb.update(task.id, {
-          lastRun: new Date(),
+          lastRun: now(),
           nextRun: calculateNextRun(task.cron)
         });
       }
@@ -721,7 +720,7 @@ function startHeartbeat() {
       await checkProactiveInteraction();
 
     } catch (error) {
-      logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'heartbeat', content: `Heartbeat error: ${error}`, createdAt: new Date() });
+      logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'heartbeat', content: `Heartbeat error: ${error}`, createdAt: now() });
     }
   });
 }
@@ -743,7 +742,7 @@ function loadProactiveConfig(): void {
       proactiveConfig.maxMs = defaults.maxIntervalMinutes * 60_000;
     }
   } catch (error) {
-    logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'heartbeat', content: `Failed to load proactive config: ${error}`, createdAt: new Date() });
+    logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'heartbeat', content: `Failed to load proactive config: ${error}`, createdAt: now() });
   }
 }
 
@@ -788,7 +787,7 @@ async function executeProactiveInteraction(signal: AbortSignal): Promise<void> {
       level: 'error',
       category: 'proactive',
       content: `Screen capture failed: ${e}`,
-      createdAt: new Date()
+      createdAt: now()
     });
     broadcastProactiveMessage({
       type: 'error',
@@ -816,7 +815,7 @@ async function executeProactiveInteraction(signal: AbortSignal): Promise<void> {
     level: 'info',
     category: 'proactive',
     content: 'Proactive interaction completed',
-    createdAt: new Date()
+    createdAt: now()
   });
 }
 
@@ -828,7 +827,7 @@ function calculateNextRun(cronExpr: string): Date {
 // ========== 启动 ==========
 
 app.listen(PORT, async () => {
-  logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Running on http://localhost:${PORT}`, createdAt: new Date() });
+  logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Running on http://localhost:${PORT}`, createdAt: now() });
 
   // 加载角色卡
   const character = loadDefaultCharacter();
@@ -837,13 +836,13 @@ app.listen(PORT, async () => {
   // 配置状态管理器使用角色卡的阶段定义
   // 初始化Skill引擎
   const skillMetas = skillEngine.getAllSkillMetas();
-  logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Loaded ${skillMetas.length} skills`, createdAt: new Date() });
+  logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Loaded ${skillMetas.length} skills`, createdAt: now() });
 
   // 预加载 Embedding 模型（后台进行，不阻塞启动）
   embeddingManager.preload().then(() => {
-    logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'embedding', content: 'Embedding model ready', createdAt: new Date() });
+    logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'embedding', content: 'Embedding model ready', createdAt: now() });
   }).catch(err => {
-    logDb.insert({ id: crypto.randomUUID(), level: 'warn', category: 'embedding', content: `Embedding model preload failed: ${err}`, createdAt: new Date() });
+    logDb.insert({ id: crypto.randomUUID(), level: 'warn', category: 'embedding', content: `Embedding model preload failed: ${err}`, createdAt: now() });
   });
 
   // 恢复未归档的对话并汇总为topic
@@ -854,12 +853,12 @@ app.listen(PORT, async () => {
   resetProactiveTimer();
   startHeartbeat();
 
-  logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: 'Ready', createdAt: new Date() });
+  logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: 'Ready', createdAt: now() });
 });
 
 // 优雅关闭
 process.on('SIGTERM', () => {
-  logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: 'Shutting down...', createdAt: new Date() });
+  logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: 'Shutting down...', createdAt: now() });
   if (heartbeatTask) {
     heartbeatTask.stop();
   }
