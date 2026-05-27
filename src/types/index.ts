@@ -25,6 +25,7 @@ export interface SystemState {
 export interface Dialogue {
   id: string;
   turnIndex: number;
+  characterId: string;
   userContent: string;
   aiContent: string;
   createdAt: Date;

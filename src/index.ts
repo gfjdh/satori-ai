@@ -13,6 +13,7 @@ import { taskDb, logDb, stateDb } from './db/database.js';
 import { dialogueDb } from './db/database.js';
 import { loadDefaultCharacter, type CharacterConfig } from './character/loader.js';
 import { createCharacterRouter } from './character/api.js';
+import { getCurrentCharacterId } from './character/knowledge.js';
 import { proactiveAgent } from './agent/proactive-agent.js';
 import { imageAnalysis } from './skills/image-analysis/index.js';
 import { switchTTSModel } from './tts/client.js';
@@ -104,7 +105,7 @@ app.get('/api/state', (req: Request, res: Response) => {
 app.get('/api/dialogues', (req: Request, res: Response) => {
   try {
     const limit = parseInt(req.query.limit as string) || 20;
-    const dialogues = dialogueDb.getRecent(limit);
+    const dialogues = dialogueDb.getRecent(limit, getCurrentCharacterId());
     res.json(dialogues);
   } catch (error) {
     res.status(500).json({ error: String(error) });
@@ -362,6 +363,7 @@ let currentChatAbortController: AbortController | null = null;
 let currentProactiveAbortController: AbortController | null = null;
 let proactiveTimer = { nextTriggerAt: 0 };
 let proactiveConfig = { enabled: true, minMs: 480_000, maxMs: 1_200_000 };
+let launcherWindowVisible = true;
 
 app.post('/api/chat', async (req: Request, res: Response) => {
   const { message } = req.body;
@@ -565,6 +567,24 @@ app.post('/api/proactive/trigger', async (_req: Request, res: Response) => {
   }
 });
 
+// Launcher窗口可见性状态同步（桌面端隐藏时暂停主动互动）
+app.post('/api/launcher/state', (req: Request, res: Response) => {
+  const { visible } = req.body;
+  if (typeof visible !== 'boolean') {
+    res.status(400).json({ error: 'missing "visible" boolean field' });
+    return;
+  }
+  launcherWindowVisible = visible;
+  logDb.insert({
+    id: crypto.randomUUID(),
+    level: 'info',
+    category: 'launcher',
+    content: `Window visibility: ${visible ? 'visible' : 'hidden'}`,
+    createdAt: new Date()
+  });
+  res.json({ ok: true, visible: launcherWindowVisible });
+});
+
 // 获取当前角色的Live2D配置
 app.get('/api/character/live2d-config', (req: Request, res: Response) => {
   try {
@@ -737,6 +757,7 @@ function resetProactiveTimer(): void {
 // 主动交互检查（心跳触发，有门控条件）
 async function checkProactiveInteraction(): Promise<void> {
   if (!proactiveConfig.enabled) return;
+  if (!launcherWindowVisible) return;
   if (proactiveSSEClients.length === 0) return;
   if (Date.now() < proactiveTimer.nextTriggerAt) return;
   if (currentChatAbortController !== null) return;

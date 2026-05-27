@@ -88,63 +88,79 @@ db.exec(`
 `);
 
 // 迁移：添加 user_state 列
-try {
-  db.exec(`ALTER TABLE memories ADD COLUMN user_state TEXT`);
-} catch {
-  // 列已存在，忽略
-}
+try { db.exec(`ALTER TABLE memories ADD COLUMN user_state TEXT`);} catch { /* 列已存在，忽略 */ }
+
+// 迁移：添加 character_id 列
+try { db.exec(`ALTER TABLE dialogues ADD COLUMN character_id TEXT`);} catch { /* 列已存在，忽略 */ }
 
 // ========== 对话操作 ==========
 export const dialogueDb = {
   insert(dialogue: Dialogue): void {
     const stmt = db.prepare(`
-      INSERT INTO dialogues (id, turn_index, user_content, ai_content, created_at)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO dialogues (id, turn_index, character_id, user_content, ai_content, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       dialogue.id,
       dialogue.turnIndex,
+      dialogue.characterId,
       dialogue.userContent,
       dialogue.aiContent,
       dialogue.createdAt.toISOString()
     );
   },
 
-  getRecent(limit: number = 10): Dialogue[] {
+  getRecent(limit: number, characterId: string): Dialogue[] {
     const stmt = db.prepare(`
-      SELECT * FROM dialogues ORDER BY created_at DESC LIMIT ?
+      SELECT * FROM dialogues WHERE character_id = ? ORDER BY created_at DESC LIMIT ?
     `);
-    const rows = stmt.all(limit) as any[];
+    const rows = stmt.all(characterId, limit) as any[];
     return rows.map(row => ({
       id: row.id,
       turnIndex: row.turn_index,
+      characterId: row.character_id,
       userContent: row.user_content,
       aiContent: row.ai_content,
       createdAt: new Date(row.created_at)
     }));
   },
 
-  getTurnCount(): number {
-    const stmt = db.prepare('SELECT MAX(turn_index) as max_turn FROM dialogues');
-    const result = stmt.get() as { max_turn: number | null };
+  getTurnCount(characterId: string): number {
+    const stmt = db.prepare('SELECT MAX(turn_index) as max_turn FROM dialogues WHERE character_id = ?');
+    const result = stmt.get(characterId) as { max_turn: number | null };
     return result.max_turn ?? 0;
   },
 
-  getCountSince(date: Date): number {
+  getDialogueCountSince(date: Date, characterId: string): number {
     const stmt = db.prepare(`
-      SELECT COUNT(*) as count FROM dialogues WHERE created_at >= ?
+      SELECT COUNT(*) as count FROM dialogues WHERE character_id = ? AND created_at >= ?
     `);
-    const result = stmt.get(date.toISOString()) as { count: number };
+    const result = stmt.get(characterId, date.toISOString()) as { count: number };
     return result.count;
   },
 
-  getLastDialogueTime(): Date | null {
-    const stmt = db.prepare('SELECT created_at FROM dialogues ORDER BY created_at DESC LIMIT 1');
-    const row = stmt.get() as { created_at: string } | undefined;
+  getLastDialogueTime(characterId: string): Date | null {
+    const stmt = db.prepare('SELECT created_at FROM dialogues WHERE character_id = ? ORDER BY created_at DESC LIMIT 1');
+    const row = stmt.get(characterId) as { created_at: string } | undefined;
     return row ? new Date(row.created_at) : null;
   },
 
-  getSince(date: Date): Dialogue[] {
+  getCharacterDialogueSince(date: Date, characterId: string): Dialogue[] {
+    const stmt = db.prepare(`
+      SELECT * FROM dialogues WHERE character_id = ? AND created_at > ? ORDER BY turn_index ASC
+    `);
+    const rows = stmt.all(characterId, date.toISOString()) as any[];
+    return rows.map(row => ({
+      id: row.id,
+      turnIndex: row.turn_index,
+      characterId: row.character_id,
+      userContent: row.user_content,
+      aiContent: row.ai_content,
+      createdAt: new Date(row.created_at)
+    }));
+  },
+
+  getAllDialogueSince(date: Date): Dialogue[] {
     const stmt = db.prepare(`
       SELECT * FROM dialogues WHERE created_at > ? ORDER BY turn_index ASC
     `);
@@ -152,6 +168,7 @@ export const dialogueDb = {
     return rows.map(row => ({
       id: row.id,
       turnIndex: row.turn_index,
+      characterId: row.character_id,
       userContent: row.user_content,
       aiContent: row.ai_content,
       createdAt: new Date(row.created_at)

@@ -3,6 +3,12 @@ import path from 'path';
 import { logDb } from '../db/database.js';
 import { setCurrentCharacterId } from './knowledge.js';
 
+let cachedName = '';
+
+export function getCharacterName(): string {
+  return cachedName;
+}
+
 export interface StageDefinition {
   min: number;
   max: number;
@@ -54,6 +60,7 @@ export function loadCharacter(characterId: string): CharacterConfig | null {
     }
 
     setCurrentCharacterId(config.id);
+    cachedName = config.name;
     logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Loaded character: ${config.name}`, createdAt: new Date() });
     return config as CharacterConfig;
   } catch (error) {
@@ -78,5 +85,6 @@ export function loadDefaultCharacter(): CharacterConfig {
     personality: '助手'
   };
   setCurrentCharacterId(defaultConfig.id);
+  cachedName = defaultConfig.name;
   return defaultConfig;
 }

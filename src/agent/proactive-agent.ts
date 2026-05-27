@@ -58,6 +58,7 @@ export class ProactiveAgent {
       screenDescription,
       memoryContent,
       characterInfo,
+      characterName: this.character.name,
       dialogueRequirements,
       emotionDescription: stateManager.getEmotionDescription(),
       affinityDescription: stateManager.getAffinityDescription(),
@@ -127,10 +128,11 @@ export class ProactiveAgent {
     onSSE({ type: 'done', data: { text: finalText } });
 
     if (finalText) {
-      const turnIndex = dialogueDb.getTurnCount() + 1;
+      const turnIndex = dialogueDb.getTurnCount(this.character.id) + 1;
       const dialogue: Dialogue = {
         id: uuidv4(),
         turnIndex,
+        characterId: this.character.id,
         userContent: '[Proactive]',
         aiContent: finalText,
         createdAt: new Date()

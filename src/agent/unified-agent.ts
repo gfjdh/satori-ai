@@ -38,7 +38,7 @@ class UnifiedAgent {
     onSSE?: (message: SSEMessage) => void,
     signal?: AbortSignal
   ): Promise<string> {
-    const turnIndex = dialogueDb.getTurnCount() + 1;
+    const turnIndex = dialogueDb.getTurnCount(this.character.id) + 1;
     const turnId = uuidv4();
 
     logDb.insert({
@@ -92,6 +92,7 @@ class UnifiedAgent {
       retrievalResults: retrievalContext,
       visualContext,
       characterInfo,
+      characterName: this.character.name,
       dialogueRequirements,
       emotionDescription: stateManager.getEmotionDescription(),
       affinityDescription: stateManager.getAffinityDescription(),
@@ -252,6 +253,7 @@ class UnifiedAgent {
       const dialogue: Dialogue = {
         id: turnId,
         turnIndex,
+        characterId: this.character.id,
         userContent: userInput,
         aiContent: finalText,
         createdAt: new Date()

@@ -2,6 +2,7 @@ import { LLMRequest, LLMResponse } from '../types/index.js';
 import { logDb } from '../db/database.js';
 import { v4 as uuidv4 } from 'uuid';
 import dotenv from 'dotenv';
+import { getCharacterName } from '../character/loader.js';
 
 dotenv.config();
 
@@ -78,7 +79,7 @@ export async function callLLM(request: LLMRequest, logRequest = true, signal?: A
     // 统一日志记录：包含请求上下文和完整回复
     if (logRequest) {
       const messagesContent = request.messages.map(m => {
-        const role = m.role === 'system' ? '【系统】' : m.role === 'user' ? '【用户】' : '【角色】';
+        const role = m.role === 'system' ? '【系统】' : m.role === 'user' ? '【用户】' : `【${getCharacterName()}】`;
         const content = typeof m.content === 'string' ? m.content : '[多模态内容]';
         return `${role}: ${content}`;
       }).join('\n');
@@ -205,7 +206,7 @@ export async function* callLLMStream(
   // 流结束后写入统一日志
   if (logRequest) {
     const messagesContent = request.messages.map(m => {
-      const role = m.role === 'system' ? '【系统】' : m.role === 'user' ? '【用户】' : '【角色】';
+      const role = m.role === 'system' ? '【系统】' : m.role === 'user' ? '【用户】' : `【${getCharacterName()}】`;
       const content = typeof m.content === 'string' ? m.content : '[多模态内容]';
       return `${role}: ${content}`;
     }).join('\n');

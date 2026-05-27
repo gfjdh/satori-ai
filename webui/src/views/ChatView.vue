@@ -47,6 +47,7 @@ const contextLogs = ref<Array<{ step: string; data: any; time: Date }>>([])
 const conversationHistory = ref<Dialogue[]>([])
 const recentLogs = ref<LogEntry[]>([])
 const currentState = ref<any>(null)
+const characterName = ref('角色')
 
 // 加载初始数据
 async function loadInitialData() {
@@ -59,6 +60,16 @@ async function loadInitialData() {
 
     const stateRes = await stateApi.get()
     currentState.value = stateRes.data
+
+    try {
+      const charRes = await fetch('/api/character/live2d-config')
+      if (charRes.ok) {
+        const charData = await charRes.json()
+        if (charData.characterName) {
+          characterName.value = charData.characterName
+        }
+      }
+    } catch { /* character name fetch is best-effort */ }
 
     messages.value = []
     const sortedHistory = [...conversationHistory.value].sort(
