@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick, watch } from 'vue'
-import { stateApi, logApi } from '@/api'
+import { stateApi, logApi,characterApi} from '@/api'
 import type { Dialogue, LogEntry } from '@/api'
 
 // 对话相关
-const messages = ref<Array<{ role: 'user' | 'assistant'; content: string; time: Date; audioQueue?: any[]; currentSubtitle?: string }>>([])
+const messages = ref<Array<{ role: 'user' | 'assistant'; content: string; time: Date; audioQueue?: any[]; currentSubtitle?: string ;charName?: string }>>([])
 const inputText = ref('')
 const isLoading = ref(false)
 
@@ -158,13 +158,17 @@ async function sendMessage() {
       throw new Error(`HTTP ${response.status}`)
     }
 
+    const characterRes = await characterApi.getCurrent()
+    const charName = characterRes.data?.name || '角色'
+
     // 添加角色消息占位
     messages.value.push({
       role: 'assistant',
       content: '',
       time: new Date(),
       audioQueue: [],
-      currentSubtitle: ''
+      currentSubtitle: '',
+      charName: charName
     })
 
     // 重置播放状态
@@ -527,7 +531,7 @@ watch(() => messages.value.length, async () => {
           :class="msg.role"
         >
           <div class="message-header">
-            <span class="role-label">{{ msg.role === 'user' ? '用户' : '角色' }}</span>
+            <span class="role-label">{{ msg.role === 'user' ? '用户' : msg.charName || '角色' }}</span>
             <span class="time">{{ formatTime(msg.time) }}</span>
           </div>
           <div class="message-content">{{ msg.content }}</div>

@@ -59,25 +59,21 @@ const summaryCards = computed(() => [
     key: 'skills',
     label: '已加载技能',
     value: skills.value.length,
-    note: '当前可调用能力'
   },
   {
     key: 'dialogues',
     label: '对话记录',
     value: dialogues.value.length,
-    note: '最近 50 条会话'
   },
   {
     key: 'tasks',
     label: '启用任务',
     value: `${activeTasksCount.value}/${tasks.value.length}`,
-    note: dueTasksCount.value > 0 ? `${dueTasksCount.value} 个任务待执行` : '任务队列正常'
   },
   {
     key: 'errors',
     label: '错误日志',
     value: recentErrorCount.value,
-    note: logs.value.length > 0 ? '基于当前筛选结果' : '暂无异常'
   }
 ])
 
@@ -257,7 +253,6 @@ onUnmounted(() => {
       >
         <div class="summary-label">{{ card.label }}</div>
         <div class="summary-value">{{ card.value }}</div>
-        <div class="summary-note">{{ card.note }}</div>
       </el-card>
     </section>
 
@@ -497,8 +492,8 @@ onUnmounted(() => {
   --border: rgba(255, 255, 255, 0.72);
   --text-main: #162033;
   --text-subtle: #6a7486;
-  --accent: #f26b3a;
-  --accent-soft: #ffd8b8;
+  --accent: #ff6b9d;
+  --accent-soft: #fce4ec;
   --blue-soft: #d7ebff;
   padding: 8px 0 28px;
   color: var(--text-main);
@@ -802,15 +797,15 @@ onUnmounted(() => {
 }
 
 .dialogue-bubble.user {
-  background: #eef6ff;
+  background: #e3f2fd;
 }
 
 .dialogue-bubble.user label {
-  color: #2f7df6;
+  color: #2196f3;
 }
 
 .dialogue-bubble.ai {
-  background: #fff4ea;
+  background: #fce4ec;
 }
 
 .dialogue-bubble.ai label {

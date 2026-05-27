@@ -97,7 +97,7 @@ export interface Skill extends SkillMeta {
 // SSE事件类型
 export type SSEEventType =
   | 'voice' | 'audio' | 'subtitle' | 'subtitle_append'
-  | 'deep_think_pending' | 'deep_think_progress' | 'done' | 'error' | 'proactive';
+  | 'deep_think_pending' | 'deep_think_progress' | 'done' | 'error' | 'proactive' | 'reload';
 
 // SSEMessage data 类型
 export interface VoiceEventData {

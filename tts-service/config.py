@@ -20,6 +20,7 @@ class Config:
     # 动态获取的模型路径（缓存）
     _gpt_model_path = None
     _sovits_model_path = None
+    CURRENT_CHARACTER_ID_OVERRIDE = None
 
     @classmethod
     def get_tts_model_paths(cls):
@@ -27,8 +28,14 @@ class Config:
         if cls._gpt_model_path is not None:
             return cls._gpt_model_path, cls._sovits_model_path
 
-        load_dotenv(os.path.join(cls.PROJECT_DIR, ".env"))
-        character_id = os.getenv("CURRENT_CHARACTER_ID")
+        if cls.CURRENT_CHARACTER_ID_OVERRIDE:
+            character_id = cls.CURRENT_CHARACTER_ID_OVERRIDE
+        else:
+            load_dotenv(os.path.join(cls.PROJECT_DIR, ".env"))
+            character_id = os.getenv("CURRENT_CHARACTER_ID")
+
+        if not character_id:
+            raise ValueError("No CURRENT_CHARACTER_ID found in env or override")
 
         tts_dir = os.path.join(cls.PROJECT_DIR, "character-cards", character_id, "TTS")
 
