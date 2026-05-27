@@ -1,25 +1,82 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
-import { stateApi, logApi, skillApi, taskApi, dialogueApi } from '@/api'
-import type { Dialogue, LogEntry, SkillMeta, Task } from '@/api'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { dialogueApi, logApi, skillApi, stateApi, taskApi } from '@/api'
+import type { Dialogue, LogEntry, SkillMeta, State, Task } from '@/api'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
-// 数据
+const logCategories = [
+  { label: '全部日志', value: '' },
+  { label: 'Agent', value: 'agent' },
+  { label: 'API 调用', value: 'api_call' },
+  { label: '屏幕分析', value: 'screen_analysis' },
+  { label: '心跳', value: 'heartbeat' },
+  { label: '任务', value: 'task' },
+  { label: '错误', value: 'error' }
+]
+
 const dialogues = ref<Dialogue[]>([])
 const logs = ref<LogEntry[]>([])
 const skills = ref<SkillMeta[]>([])
 const tasks = ref<Task[]>([])
-const state = ref<any>(null)
-const tokenUsage = ref({ prompt: 0, completion: 0, total: 0 })
+const state = ref<State | null>(null)
 
-// 状态
 const isLoading = ref(true)
-const lastRefresh = ref<Date>(new Date())
-const filterCategory = ref<string>('')
-
-// 日志详情弹窗
+const lastRefresh = ref(new Date())
+const filterCategory = ref('')
 const selectedLog = ref<LogEntry | null>(null)
+const logDialogVisible = computed({
+  get: () => selectedLog.value !== null,
+  set: (value: boolean) => {
+    if (!value) {
+      selectedLog.value = null
+    }
+  }
+})
 
-// 加载所有数据
+const activeTasksCount = computed(() => tasks.value.filter((task) => task.enabled).length)
+const dueTasksCount = computed(() => tasks.value.filter((task) => getTaskStatus(task) === 'due').length)
+const recentErrorCount = computed(() => logs.value.filter((log) => log.level === 'error').length)
+
+const affinityMetrics = computed(() =>
+  Object.entries(state.value?.affinity.dimensions ?? {}).map(([name, value]) => ({
+    name,
+    value: Number(value)
+  }))
+)
+
+const emotionMetrics = computed(() =>
+  Object.entries(state.value?.emotion.dimensions ?? {}).map(([name, value]) => ({
+    name,
+    value: Number(value),
+    percent: Math.max(0, Math.min(100, (Number(value) + 100) / 2))
+  }))
+)
+
+const latestDialogues = computed(() => dialogues.value.slice(0, 8))
+
+const summaryCards = computed(() => [
+  {
+    key: 'skills',
+    label: '已加载技能',
+    value: skills.value.length,
+  },
+  {
+    key: 'dialogues',
+    label: '对话记录',
+    value: dialogues.value.length,
+  },
+  {
+    key: 'tasks',
+    label: '启用任务',
+    value: `${activeTasksCount.value}/${tasks.value.length}`,
+  },
+  {
+    key: 'errors',
+    label: '错误日志',
+    value: recentErrorCount.value,
+  }
+])
+
 async function loadData() {
   isLoading.value = true
   try {
@@ -35,91 +92,127 @@ async function loadData() {
     logs.value = logRes.data || []
     skills.value = skillRes.data || []
     tasks.value = taskRes.data || []
-    state.value = stateRes.data
+    state.value = stateRes.data || null
     lastRefresh.value = new Date()
-  } catch (e) {
-    console.error('Failed to load data:', e)
+  } catch (error) {
+    console.error('Failed to load data:', error)
+    ElMessage.error('状态数据加载失败')
+  } finally {
+    isLoading.value = false
   }
-  isLoading.value = false
 }
 
-// 格式化时间
 function formatTime(date: Date | string): string {
-  const d = typeof date === 'string' ? new Date(date) : date
-  return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  const value = typeof date === 'string' ? new Date(date) : date
+  return value.toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  })
 }
 
-function formatDate(date: Date | string): string {
-  const d = typeof date === 'string' ? new Date(date) : date
-  return d.toLocaleDateString('zh-CN')
+function formatDateTime(date: Date | string | null): string {
+  if (!date) return '暂无记录'
+  const value = typeof date === 'string' ? new Date(date) : date
+  return value.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  })
 }
 
-// 获取日志级别样式
-function getLogLevelClass(level: string): string {
-  return `log-${level}`
+function formatSnippet(text: string, maxLength = 120): string {
+  if (text.length <= maxLength) return text
+  return `${text.slice(0, maxLength)}...`
 }
 
-// 获取任务状态样式
-function getTaskStatus(task: Task): string {
+function getLogTagType(level: LogEntry['level']): 'primary' | 'warning' | 'danger' | 'info' {
+  if (level === 'error') return 'danger'
+  if (level === 'warn') return 'warning'
+  if (level === 'debug') return 'info'
+  return 'primary'
+}
+
+function getTaskStatus(task: Task): 'disabled' | 'due' | 'scheduled' {
   if (!task.enabled) return 'disabled'
-  const nextRun = new Date(task.nextRun)
-  if (nextRun <= new Date()) return 'due'
+  if (new Date(task.nextRun).getTime() <= Date.now()) return 'due'
   return 'scheduled'
 }
 
-// 刷新数据
+function getTaskStatusLabel(task: Task): string {
+  const status = getTaskStatus(task)
+  if (status === 'disabled') return '已停用'
+  if (status === 'due') return '待执行'
+  return '已排程'
+}
+
+function getTaskTagType(task: Task): 'success' | 'warning' | 'info' {
+  const status = getTaskStatus(task)
+  if (status === 'due') return 'warning'
+  if (status === 'disabled') return 'info'
+  return 'success'
+}
+
 function refresh() {
   loadData()
 }
 
-// 导出日志到文件
 async function flushLogs() {
   try {
     await logApi.flush()
-    alert('日志已导出到 data/logs/ 目录')
-  } catch (e) {
-    console.error('Failed to flush logs:', e)
-    alert('日志导出失败')
+    ElMessage.success('日志已导出到 data/logs 目录')
+  } catch (error) {
+    console.error('Failed to flush logs:', error)
+    ElMessage.error('日志导出失败')
   }
 }
 
-// 清除日志
 async function clearLogs() {
-  if (!confirm('确定清除所有日志？')) return
   try {
+    await ElMessageBox.confirm('确定清空当前所有系统日志吗？', '清空日志', {
+      type: 'warning',
+      confirmButtonText: '清空',
+      cancelButtonText: '取消'
+    })
     await logApi.clear()
     logs.value = []
-  } catch (e) {
-    console.error('Failed to clear logs:', e)
+    ElMessage.success('日志已清空')
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('Failed to clear logs:', error)
+      ElMessage.error('清空日志失败')
+    }
   }
 }
 
-// 查看日志详情
+async function clearDialogues() {
+  try {
+    await ElMessageBox.confirm('确定清空所有对话记录吗？', '清空对话', {
+      type: 'warning',
+      confirmButtonText: '清空',
+      cancelButtonText: '取消'
+    })
+    await dialogueApi.clear()
+    dialogues.value = []
+    ElMessage.success('对话记录已清空')
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('Failed to clear dialogues:', error)
+      ElMessage.error('清空对话失败')
+    }
+  }
+}
+
 function viewLog(log: LogEntry) {
   selectedLog.value = log
 }
 
-function closeLogDetail() {
-  selectedLog.value = null
-}
-
-// 清除对话
-async function clearDialogues() {
-  if (!confirm('确定清除所有对话记录？')) return
-  try {
-    await dialogueApi.clear()
-    dialogues.value = []
-  } catch (e) {
-    console.error('Failed to clear dialogues:', e)
-  }
-}
-
-// 自动刷新
 let autoRefreshTimer: number | null = null
 
 onMounted(() => {
   loadData()
-  // 每30秒自动刷新
   autoRefreshTimer = window.setInterval(() => {
     loadData()
   }, 30000)
@@ -134,671 +227,716 @@ onUnmounted(() => {
 
 <template>
   <div class="status-view">
-    <div class="status-header">
-      <h2>状态面板</h2>
-      <div class="header-actions">
-        <select v-model="filterCategory" @change="loadData">
-          <option value="">全部日志</option>
-          <option value="agent">Agent</option>
-          <option value="api_call">API调用</option>
-          <option value="screen_analysis">屏幕分析</option>
-          <option value="heartbeat">心跳</option>
-          <option value="task">任务</option>
-          <option value="error">错误</option>
-        </select>
-        <span class="last-refresh">最后刷新: {{ formatTime(lastRefresh) }}</span>
-        <button @click="refresh" :disabled="isLoading">
-          {{ isLoading ? '刷新中...' : '刷新' }}
-        </button>
-        <button @click="flushLogs" class="btn-flush">导出日志</button>
-        <button @click="clearLogs" class="btn-danger">清空日志</button>
-        <button @click="clearDialogues" class="btn-danger">清空对话</button>
+    <section class="hero-panel">
+      <div class="hero-copy">
+        <h1>系统状态总览</h1>
+        <div class="hero-meta">
+          <span>最近刷新 {{ formatTime(lastRefresh) }}</span>
+          <span>自动刷新间隔 30 秒</span>
+          <span v-if="state">情绪回归速率 {{ state.emotion.regressionRate }}</span>
+        </div>
       </div>
-    </div>
 
-    <!-- 概览卡片 -->
-    <div class="overview-cards">
-      <div class="overview-card">
-        <div class="card-title">当前状态</div>
-        <div class="card-content" v-if="state">
-          <div class="state-item">
-            <span class="label">情绪回归速率:</span>
-            <span class="value">{{ state.emotion.regressionRate }}</span>
+      <div class="hero-actions">
+        <el-button type="primary" :loading="isLoading" @click="refresh">
+          刷新数据
+        </el-button>
+      </div>
+    </section>
+
+    <section class="summary-grid">
+      <el-card
+        v-for="card in summaryCards"
+        :key="card.key"
+        shadow="hover"
+        class="summary-card"
+      >
+        <div class="summary-label">{{ card.label }}</div>
+        <div class="summary-value">{{ card.value }}</div>
+      </el-card>
+    </section>
+
+    <section class="content-grid">
+      <el-card class="state-card panel-card" shadow="never">
+        <template #header>
+          <div class="panel-header">
+            <div>
+              <h3>角色状态</h3>
+            </div>
+            <el-tag v-if="state" type="success" effect="plain">在线</el-tag>
           </div>
-        </div>
-        <div class="card-content empty" v-else>加载中...</div>
-      </div>
+        </template>
 
-      <div class="overview-card">
-        <div class="card-title">Skills</div>
-        <div class="card-content">
-          <div class="stat">{{ skills.length }} 个已加载</div>
-        </div>
-      </div>
-
-      <div class="overview-card">
-        <div class="card-title">对话轮次</div>
-        <div class="card-content">
-          <div class="stat">{{ dialogues.length }} 条记录</div>
-        </div>
-      </div>
-
-      <div class="overview-card">
-        <div class="card-title">定时任务</div>
-        <div class="card-content">
-          <div class="stat">{{ tasks.filter(t => t.enabled).length }} / {{ tasks.length }} 启用</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 详情区域 -->
-    <div class="detail-sections">
-      <!-- 状态详情 -->
-      <div class="detail-section state-section" v-if="state">
-        <h3>状态详情</h3>
-        <div class="section-content">
-          <div class="state-group">
-            <h4>好感度</h4>
-            <div class="dimensions">
-              <div v-for="(value, key) in state.affinity.dimensions" :key="key" class="dimension">
-                <span class="dim-name">{{ key }}</span>
-                <div class="dim-bar">
-                  <div class="dim-fill affinity" :style="{ width: value + '%' }"></div>
+        <div v-if="state" class="state-metrics">
+          <div class="metric-group">
+            <div class="metric-title">亲和度</div>
+            <div class="metric-stack">
+              <div v-for="metric in affinityMetrics" :key="metric.name" class="metric-row">
+                <div class="metric-label">
+                  <span>{{ metric.name }}</span>
+                  <strong>{{ metric.value }}</strong>
                 </div>
-                <span class="dim-value">{{ value }}</span>
+                <el-progress
+                  :percentage="metric.value"
+                  :show-text="false"
+                  color="#f26b3a"
+                  :stroke-width="10"
+                />
               </div>
             </div>
           </div>
-          <div class="state-group">
-            <h4>情绪</h4>
-            <div class="dimensions">
-              <div v-for="(value, key) in state.emotion.dimensions" :key="key" class="dimension">
-                <span class="dim-name">{{ key }}</span>
-                <div class="dim-bar">
-                  <div class="dim-fill emotion" :style="{ width: ((value + 100) / 2) + '%' }"></div>
+
+          <div class="metric-group">
+            <div class="metric-title">情绪波动</div>
+            <div class="metric-stack">
+              <div v-for="metric in emotionMetrics" :key="metric.name" class="metric-row">
+                <div class="metric-label">
+                  <span>{{ metric.name }}</span>
+                  <strong>{{ metric.value }}</strong>
                 </div>
-                <span class="dim-value">{{ value }}</span>
+                <el-progress
+                  :percentage="metric.percent"
+                  :show-text="false"
+                  color="#2f7df6"
+                  :stroke-width="10"
+                />
               </div>
             </div>
           </div>
         </div>
-      </div>
+        <el-empty v-else description="状态数据加载中" />
+      </el-card>
 
-      <!-- 定时任务 -->
-      <div class="detail-section tasks-section">
-        <h3>定时任务 ({{ tasks.length }})</h3>
-        <div class="tasks-list" v-if="tasks.length > 0">
-          <div v-for="task in tasks" :key="task.id" class="task-item" :class="getTaskStatus(task)">
-            <div class="task-info">
-              <span class="task-name">{{ task.name }}</span>
-              <span class="task-cron">{{ task.cron }}</span>
+      <el-card class="tasks-card panel-card" shadow="never">
+        <template #header>
+          <div class="panel-header">
+            <div>
+              <h3>定时任务</h3>
+              <p>{{ activeTasksCount }} 个任务正在运行</p>
             </div>
-            <div class="task-meta">
-              <span class="task-type">{{ task.actionType }}</span>
-              <span class="task-next">下次: {{ formatTime(task.nextRun) }}</span>
+            <el-tag type="warning" effect="plain">{{ dueTasksCount }} 待执行</el-tag>
+          </div>
+        </template>
+
+        <div v-if="tasks.length" class="task-list">
+          <div
+            v-for="task in tasks"
+            :key="task.id"
+            class="task-item"
+            :class="`task-${getTaskStatus(task)}`"
+          >
+            <div class="task-main">
+              <div class="task-title-row">
+                <strong>{{ task.name }}</strong>
+                <el-tag size="small" :type="getTaskTagType(task)">
+                  {{ getTaskStatusLabel(task) }}
+                </el-tag>
+              </div>
+              <div class="task-subtitle">{{ task.actionType }} · {{ task.cron }}</div>
             </div>
-            <div class="task-status">
-              <span class="status-badge">{{ task.enabled ? '启用' : '禁用' }}</span>
+            <div class="task-side">
+              <span>下次执行</span>
+              <strong>{{ formatDateTime(task.nextRun) }}</strong>
+              <small>上次执行 {{ formatDateTime(task.lastRun) }}</small>
             </div>
           </div>
         </div>
-        <div class="empty-section" v-else>暂无定时任务</div>
-      </div>
+        <el-empty v-else description="暂无定时任务" />
+      </el-card>
 
-      <!-- Skills 列表 -->
-      <div class="detail-section skills-section">
-        <h3>已加载 Skills ({{ skills.length }})</h3>
-        <div class="skills-grid">
-          <div v-for="skill in skills" :key="skill.name" class="skill-card">
-            <div class="skill-name">{{ skill.name }}</div>
-            <div class="skill-desc">{{ skill.description }}</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 最新对话 -->
-      <div class="detail-section dialogue-section">
-        <h3>最新对话 ({{ dialogues.length }})</h3>
-        <div class="dialogue-list">
-          <div v-for="dialog in dialogues.slice(0, 10)" :key="dialog.id" class="dialogue-item">
-            <div class="dialogue-turn">#{{ dialog.turnIndex }}</div>
-            <div class="dialogue-content">
-              <div class="user-text">{{ dialog.userContent }}</div>
-              <div class="ai-text">{{ dialog.aiContent }}</div>
+      <el-card class="skills-card panel-card" shadow="never">
+        <template #header>
+          <div class="panel-header">
+            <div>
+              <h3>技能清单</h3>
             </div>
-            <div class="dialogue-time">{{ formatTime(dialog.createdAt) }}</div>
+          </div>
+        </template>
+
+        <div v-if="skills.length" class="skill-list">
+          <div v-for="skill in skills" :key="skill.name" class="skill-item">
+            <div class="skill-top">
+              <strong>{{ skill.name }}</strong>
+              <el-tag size="small" effect="plain">{{ skill.version || 'latest' }}</el-tag>
+            </div>
+            <p>{{ skill.description || '暂无描述' }}</p>
+            <span>{{ skill.author || 'Unknown Author' }}</span>
           </div>
         </div>
-        <div class="empty-section" v-if="dialogues.length === 0">暂无对话记录</div>
-      </div>
+        <el-empty v-else description="暂无技能信息" />
+      </el-card>
 
-      <!-- 系统日志 -->
-      <div class="detail-section logs-section">
-        <h3>系统日志 ({{ logs.length }})</h3>
-        <div class="logs-table">
-          <table>
-            <thead>
-              <tr>
-                <th>时间</th>
-                <th>级别</th>
-                <th>分类</th>
-                <th>内容</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="log in logs" :key="log.id" :class="getLogLevelClass(log.level)">
-                <td class="log-time">{{ formatTime(log.createdAt) }}</td>
-                <td class="log-level">
-                  <span class="level-badge" :class="log.level">{{ log.level }}</span>
-                </td>
-                <td class="log-category">{{ log.category }}</td>
-                <td class="log-content" @click="viewLog(log)">{{ log.content }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div class="empty-section" v-if="logs.length === 0">暂无日志</div>
-      </div>
-    </div>
-
-    <!-- 日志详情弹窗 -->
-    <div v-if="selectedLog" class="modal-overlay" @click.self="closeLogDetail">
-      <div class="modal">
-        <div class="modal-header">
-          <h3>日志详情</h3>
-          <button class="modal-close" @click="closeLogDetail">&times;</button>
-        </div>
-        <div class="modal-body">
-          <div class="modal-meta">
-            <span class="level-badge" :class="selectedLog.level">{{ selectedLog.level }}</span>
-            <span>{{ selectedLog.category }}</span>
-            <span>{{ formatTime(selectedLog.createdAt) }}</span>
+      <el-card class="dialogue-card panel-card" shadow="never">
+        <template #header>
+          <div class="panel-header panel-header-actions">
+            <div>
+              <h3>最近对话</h3>
+            </div>
+            <div class="dialogue-toolbar">
+              <el-tag effect="plain">{{ dialogues.length }} 条</el-tag>
+              <el-button size="small" type="danger" plain @click="clearDialogues">
+                清空对话
+              </el-button>
+            </div>
           </div>
-          <pre class="modal-content">{{ selectedLog.content }}</pre>
+        </template>
+
+        <div v-if="latestDialogues.length" class="dialogue-list">
+          <div v-for="dialogue in latestDialogues" :key="dialogue.id" class="dialogue-item">
+            <div class="dialogue-top">
+              <el-tag size="small" type="info" effect="plain">#{{ dialogue.turnIndex }}</el-tag>
+              <span>{{ formatDateTime(dialogue.createdAt) }}</span>
+            </div>
+            <div class="dialogue-bubble user">
+              <label>User</label>
+              <p>{{ dialogue.userContent }}</p>
+            </div>
+            <div class="dialogue-bubble ai">
+              <label>Assistant</label>
+              <p>{{ dialogue.aiContent }}</p>
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
+        <el-empty v-else description="暂无对话记录" />
+      </el-card>
+    </section>
+
+    <el-card class="logs-card panel-card" shadow="never">
+      <template #header>
+        <div class="panel-header panel-header-actions">
+          <div>
+            <h3>系统日志</h3>
+          </div>
+          <div class="logs-toolbar">
+            <el-select
+              v-model="filterCategory"
+              class="log-filter-select"
+              placeholder="选择日志分类"
+              size="small"
+              @change="loadData"
+            >
+              <el-option
+                v-for="option in logCategories"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
+            <el-tag effect="plain">{{ logs.length }} 条</el-tag>
+            <el-button size="small" @click="flushLogs">导出日志</el-button>
+            <el-button size="small" type="danger" plain @click="clearLogs">
+              清空日志
+            </el-button>
+          </div>
+        </div>
+      </template>
+
+      <el-table
+        v-if="logs.length"
+        :data="logs"
+        stripe
+        class="logs-table"
+        height="420"
+      >
+        <el-table-column label="时间" width="180">
+          <template #default="{ row }">
+            {{ formatDateTime(row.createdAt) }}
+          </template>
+        </el-table-column>
+
+        <el-table-column label="级别" width="100">
+          <template #default="{ row }">
+            <el-tag size="small" :type="getLogTagType(row.level)">
+              {{ row.level.toUpperCase() }}
+            </el-tag>
+          </template>
+        </el-table-column>
+
+        <el-table-column prop="category" label="分类" width="140" />
+
+        <el-table-column label="内容" min-width="420">
+          <template #default="{ row }">
+            <div class="log-snippet" @click="viewLog(row)">
+              {{ formatSnippet(row.content) }}
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-else description="暂无日志数据" />
+    </el-card>
+
+    <el-dialog
+      v-model="logDialogVisible"
+      title="日志详情"
+      width="760px"
+      destroy-on-close
+      :show-close="true"
+    >
+      <template v-if="selectedLog">
+        <div class="log-detail-meta">
+          <el-tag size="small" :type="getLogTagType(selectedLog.level)">
+            {{ selectedLog.level.toUpperCase() }}
+          </el-tag>
+          <el-tag size="small" effect="plain">{{ selectedLog.category }}</el-tag>
+          <span>{{ formatDateTime(selectedLog.createdAt) }}</span>
+        </div>
+        <pre class="log-detail-content">{{ selectedLog.content }}</pre>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped>
 .status-view {
-  max-width: 1400px;
+  --surface: rgba(255, 255, 255, 0.86);
+  --border: rgba(255, 255, 255, 0.72);
+  --text-main: #162033;
+  --text-subtle: #6a7486;
+  --accent: #ff6b9d;
+  --accent-soft: #fce4ec;
+  --blue-soft: #d7ebff;
+  padding: 8px 0 28px;
+  color: var(--text-main);
 }
 
-.status-header {
+.hero-panel {
   display: flex;
   justify-content: space-between;
+  gap: 24px;
+  padding: 28px;
+  border-radius: 28px;
+  background: #f7f9fc;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 0 20px 50px rgba(33, 50, 90, 0.12);
+}
+
+.hero-copy {
+  max-width: 760px;
+}
+
+.hero-kicker {
+  display: inline-flex;
   align-items: center;
-  margin-bottom: 20px;
-}
-
-.status-header h2 {
-  font-size: 22px;
-}
-
-.header-actions {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-
-.header-actions select {
-  padding: 8px 12px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  background: white;
-  font-size: 13px;
-}
-
-.last-refresh {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--accent);
   font-size: 12px;
-  color: #999;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.header-actions button {
-  padding: 8px 16px;
-  background: #ff6b9d;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
+.hero-copy h1 {
+  margin: 14px 0 12px;
+  font-size: 32px;
+  line-height: 1.1;
 }
 
-.header-actions button:disabled {
-  background: #ccc;
+.hero-copy p {
+  max-width: 620px;
+  margin: 0;
+  color: var(--text-subtle);
+  line-height: 1.7;
 }
 
-.btn-danger {
-  background: #f44336 !important;
-}
-
-.btn-flush {
-  background: #4caf50 !important;
-}
-
-.btn-danger:hover {
-  background: #d32f2f !important;
-}
-
-.btn-flush:hover {
-  background: #388e3c !important;
-}
-
-/* Overview Cards */
-.overview-cards {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  margin-bottom: 24px;
-}
-
-.overview-card {
-  background: white;
-  border-radius: 12px;
-  padding: 16px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-}
-
-.card-title {
-  font-size: 13px;
-  color: #888;
-  margin-bottom: 8px;
-}
-
-.stat {
-  font-size: 24px;
-  font-weight: 600;
-  color: #333;
-}
-
-.card-content .state-item {
+.hero-meta {
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.hero-meta span {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.74);
+  color: #435066;
   font-size: 13px;
 }
 
-.card-content .state-item .label {
-  color: #666;
-}
-
-.card-content.empty {
-  color: #999;
-}
-
-/* Detail Sections */
-.detail-sections {
+.hero-actions {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 12px;
+  width: 220px;
+  flex-shrink: 0;
 }
 
-.detail-section {
-  background: white;
-  border-radius: 12px;
-  padding: 20px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+.category-select {
+  width: 100%;
 }
 
-.detail-section h3 {
-  font-size: 16px;
-  margin-bottom: 16px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #eee;
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 22px;
 }
 
-.section-content {
-  display: flex;
-  gap: 40px;
+.summary-card {
+  border-radius: 22px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  backdrop-filter: blur(16px);
 }
 
-.state-group h4 {
+.summary-label {
   font-size: 13px;
-  color: #888;
-  margin-bottom: 10px;
+  color: var(--text-subtle);
 }
 
-.dimensions {
+.summary-value {
+  margin-top: 12px;
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.summary-note {
+  margin-top: 10px;
+  color: #4f5c73;
+  font-size: 13px;
+}
+
+.content-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr);
+  gap: 18px;
+  margin-top: 22px;
+}
+
+.panel-card {
+  border-radius: 24px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  backdrop-filter: blur(16px);
+}
+
+.state-card {
+  min-height: 380px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.panel-header-actions {
+  align-items: flex-start;
+}
+
+.panel-header h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.panel-header p {
+  margin: 6px 0 0;
+  color: var(--text-subtle);
+  font-size: 13px;
+}
+
+.state-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+}
+
+.metric-group {
+  padding: 20px;
+  border-radius: 20px;
+  background: rgba(245, 248, 253, 0.92);
+  border: 1px solid rgba(225, 233, 244, 0.9);
+}
+
+.metric-title {
+  margin-bottom: 18px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.metric-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.metric-row {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.dimension {
+.metric-label {
   display: flex;
   align-items: center;
-  gap: 10px;
-}
-
-.dim-name {
-  width: 70px;
+  justify-content: space-between;
+  gap: 12px;
   font-size: 13px;
 }
 
-.dim-bar {
-  flex: 1;
-  height: 8px;
-  background: #eee;
-  border-radius: 4px;
-  overflow: hidden;
-  max-width: 200px;
+.metric-label span {
+  color: #49556a;
 }
 
-.dim-fill {
-  height: 100%;
-  border-radius: 4px;
-  transition: width 0.3s;
+.metric-label strong {
+  font-size: 14px;
 }
 
-.dim-fill.affinity {
-  background: linear-gradient(90deg, #ff6b9d, #ff8a80);
-}
-
-.dim-fill.emotion {
-  background: linear-gradient(90deg, #64b5f6, #81d4fa);
-}
-
-.dim-value {
-  width: 40px;
-  text-align: right;
-  font-size: 13px;
-  color: #666;
-}
-
-/* Tasks */
-.tasks-list {
+.task-list,
+.skill-list,
+.dialogue-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
+}
+
+.dialogue-list {
+  max-height: 480px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.task-item,
+.skill-item,
+.dialogue-item {
+  border-radius: 18px;
+  border: 1px solid rgba(226, 233, 244, 0.92);
+  background: rgba(255, 255, 255, 0.94);
 }
 
 .task-item {
   display: flex;
-  align-items: center;
+  justify-content: space-between;
   gap: 16px;
-  padding: 12px;
-  background: #f9f9f9;
-  border-radius: 8px;
+  padding: 18px;
 }
 
-.task-item.due {
-  background: #fff3e0;
+.task-due {
+  box-shadow: inset 0 0 0 1px rgba(242, 107, 58, 0.18);
+  background: #fff8f3;
 }
 
-.task-item.disabled {
-  opacity: 0.5;
+.task-disabled {
+  opacity: 0.68;
 }
 
-.task-info {
-  flex: 1;
-}
-
-.task-name {
-  font-weight: 500;
-  display: block;
-}
-
-.task-cron {
-  font-size: 12px;
-  color: #888;
-}
-
-.task-meta {
-  text-align: center;
-}
-
-.task-type {
-  font-size: 11px;
-  color: #666;
-  display: block;
-}
-
-.task-next {
-  font-size: 12px;
-  color: #333;
-}
-
-.status-badge {
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  background: #4caf50;
-  color: white;
-}
-
-.task-item.disabled .status-badge {
-  background: #999;
-}
-
-/* Skills */
-.skills-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 12px;
-}
-
-.skill-card {
-  padding: 12px;
-  background: #f9f9f9;
-  border-radius: 8px;
-}
-
-.skill-name {
-  font-weight: 500;
-  margin-bottom: 4px;
-}
-
-.skill-desc {
-  font-size: 12px;
-  color: #666;
-  margin-bottom: 8px;
-}
-
-.skill-keywords {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
-.keyword {
-  padding: 2px 6px;
-  background: #e3f2fd;
-  border-radius: 4px;
-  font-size: 10px;
-  color: #1976d2;
-}
-
-/* Dialogues */
-.dialogue-list {
+.task-main,
+.task-side {
   display: flex;
   flex-direction: column;
+  gap: 6px;
+}
+
+.task-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.task-subtitle,
+.task-side span,
+.task-side small,
+.skill-item span,
+.dialogue-top span {
+  color: var(--text-subtle);
+  font-size: 12px;
+}
+
+.task-side {
+  min-width: 180px;
+  text-align: right;
+}
+
+.skill-item,
+.dialogue-item {
+  padding: 16px;
+}
+
+.skill-top,
+.dialogue-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
+}
+
+.skill-item p {
+  margin: 10px 0 8px;
+  color: #445066;
+  line-height: 1.6;
 }
 
 .dialogue-item {
   display: flex;
-  gap: 12px;
-  padding: 12px;
-  background: #f9f9f9;
-  border-radius: 8px;
-}
-
-.dialogue-turn {
-  font-size: 12px;
-  color: #888;
-  flex-shrink: 0;
-}
-
-.dialogue-content {
-  flex: 1;
-}
-
-.user-text {
-  font-size: 13px;
-  color: #1976d2;
-  margin-bottom: 4px;
-}
-
-.ai-text {
-  font-size: 13px;
-  color: #333;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-
-.dialogue-time {
-  font-size: 11px;
-  color: #999;
-  flex-shrink: 0;
-}
-
-/* Logs Table */
-.logs-table {
-  max-height: 400px;
-  overflow-y: auto;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-th, td {
-  padding: 10px 12px;
-  text-align: left;
-  border-bottom: 1px solid #f0f0f0;
-}
-
-th {
-  font-size: 12px;
-  color: #888;
-  font-weight: 500;
-  position: sticky;
-  top: 0;
-  background: white;
-}
-
-td {
-  font-size: 12px;
-}
-
-.log-time {
-  color: #888;
-  width: 80px;
-}
-
-.level-badge {
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 10px;
-  text-transform: uppercase;
-}
-
-.level-badge.info { background: #e3f2fd; color: #1976d2; }
-.level-badge.warn { background: #fff3e0; color: #f57c00; }
-.level-badge.error { background: #ffebee; color: #d32f2f; }
-.level-badge.debug { background: #f5f5f5; color: #757575; }
-
-.log-category {
-  width: 100px;
-}
-
-.log-content {
-  max-width: 500px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.empty-section {
-  color: #999;
-  text-align: center;
-  padding: 20px;
-}
-
-/* Modal */
-.log-content {
-  cursor: pointer;
-}
-
-.log-content:hover {
-  background: #f5f5f5;
-}
-
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal {
-  background: white;
-  border-radius: 12px;
-  width: 90%;
-  max-width: 800px;
-  max-height: 80vh;
-  display: flex;
   flex-direction: column;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px 20px;
-  border-bottom: 1px solid #eee;
-}
-
-.modal-header h3 {
-  font-size: 16px;
-}
-
-.modal-close {
-  background: none;
-  border: none;
-  font-size: 24px;
-  cursor: pointer;
-  color: #999;
-}
-
-.modal-close:hover {
-  color: #333;
-}
-
-.modal-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px;
-}
-
-.modal-meta {
-  display: flex;
   gap: 12px;
-  margin-bottom: 16px;
-  font-size: 13px;
-  color: #666;
 }
 
-.modal-content {
-  background: #f9f9f9;
-  padding: 16px;
-  border-radius: 8px;
+.dialogue-bubble {
+  padding: 14px 16px;
+  border-radius: 16px;
+}
+
+.dialogue-bubble label {
+  display: block;
+  margin-bottom: 6px;
   font-size: 12px;
-  line-height: 1.5;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.dialogue-bubble p {
+  margin: 0;
+  line-height: 1.65;
+  word-break: break-word;
+}
+
+.dialogue-bubble.user {
+  background: #e3f2fd;
+}
+
+.dialogue-bubble.user label {
+  color: #2196f3;
+}
+
+.dialogue-bubble.ai {
+  background: #fce4ec;
+}
+
+.dialogue-bubble.ai label {
+  color: var(--accent);
+}
+
+.logs-card {
+  margin-top: 18px;
+}
+
+.logs-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.dialogue-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.log-filter-select {
+  width: 168px;
+}
+
+.logs-table {
+  width: 100%;
+}
+
+.log-snippet {
+  cursor: pointer;
+  color: #344055;
+  line-height: 1.6;
+}
+
+.log-snippet:hover {
+  color: var(--accent);
+}
+
+.log-detail-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+  color: var(--text-subtle);
+  font-size: 13px;
+}
+
+.log-detail-content {
+  margin: 0;
+  padding: 18px;
+  border-radius: 16px;
+  background: #f5f8fc;
+  color: #263246;
+  font-size: 13px;
+  line-height: 1.7;
   white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 500px;
-  overflow-y: auto;
+  word-break: break-word;
+  max-height: 460px;
+  overflow: auto;
+}
+
+@media (max-width: 1200px) {
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .hero-panel {
+    flex-direction: column;
+  }
+
+  .hero-actions {
+    width: 100%;
+  }
+
+  .state-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-header-actions {
+    flex-direction: column;
+  }
+
+  .logs-toolbar {
+    width: 100%;
+  }
+
+  .dialogue-toolbar {
+    width: 100%;
+  }
+
+  .log-filter-select {
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .status-view {
+    padding-top: 0;
+  }
+
+  .hero-panel {
+    padding: 22px;
+    border-radius: 22px;
+  }
+
+  .hero-copy h1 {
+    font-size: 28px;
+  }
+
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .task-item {
+    flex-direction: column;
+  }
+
+  .task-side {
+    min-width: auto;
+    text-align: left;
+  }
 }
 </style>

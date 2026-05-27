@@ -11,10 +11,12 @@ import { memoryManager } from './memory/manager.js';
 import { skillEngine } from './skills/engine.js';
 import { taskDb, logDb, stateDb } from './db/database.js';
 import { dialogueDb } from './db/database.js';
-import { loadDefaultCharacter } from './character/loader.js';
+import { loadDefaultCharacter, type CharacterConfig } from './character/loader.js';
+import { createCharacterRouter } from './character/api.js';
 import { getCurrentCharacterId } from './character/knowledge.js';
 import { proactiveAgent } from './agent/proactive-agent.js';
 import { imageAnalysis } from './skills/image-analysis/index.js';
+import { switchTTSModel } from './tts/client.js';
 import { SSEMessage } from './types/index.js';
 import cron from 'node-cron';
 
@@ -41,6 +43,46 @@ app.use((req, res, next) => {
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
   next();
 });
+
+// 角色切换处理
+function applyCharacterRuntime(character: CharacterConfig): void {
+  unifiedAgent.setCharacter(character);
+  proactiveAgent.setCharacter(character);
+  stateManager.configureDimensions({
+    emotionRegressionRate: character.emotionRegressionRate,
+    affinityStages: character.affinityStages,
+    emotionStages: character.emotionStages
+  });
+  // 通知终端：TTS服务更新角色
+  switchTTSModel(character.id).catch(err => {
+    logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'tts', content: `Failed to switch TTS model for character ${character.name} (ID: ${character.id}): ${err}`, createdAt: new Date() });
+  });
+  
+  // 广播重载事件给Live2D组件
+  broadcastProactiveMessage({
+    type: 'reload',
+    data: { characterId: character.id }
+  });
+  
+  logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Character loaded: ${character.name} (ID: ${character.id})`, createdAt: new Date() });
+  resetProactiveTimer();
+}
+
+// 角色信息更新处理
+function applyCharacterUpdate(character: CharacterConfig): void {
+  unifiedAgent.setCharacter(character);
+  proactiveAgent.setCharacter(character);
+  stateManager.configureDimensions({
+    emotionRegressionRate: character.emotionRegressionRate,
+    affinityStages: character.affinityStages,
+    emotionStages: character.emotionStages
+  });
+  logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Character config updated locally without reload: ${character.name} (ID: ${character.id})`, createdAt: new Date() });
+}
+
+// ========== 角色管理路由 ==========
+
+app.use('/api/characters', createCharacterRouter(applyCharacterRuntime, applyCharacterUpdate));
 
 // ========== API路由 ==========
 
@@ -790,16 +832,9 @@ app.listen(PORT, async () => {
 
   // 加载角色卡
   const character = loadDefaultCharacter();
-  unifiedAgent.setCharacter(character);
-  proactiveAgent.setCharacter(character);
+  applyCharacterRuntime(character);
 
   // 配置状态管理器使用角色卡的阶段定义
-  stateManager.configureDimensions({
-    emotionRegressionRate: character.emotionRegressionRate,
-    affinityStages: character.affinityStages,
-    emotionStages: character.emotionStages
-  });
-
   // 初始化Skill引擎
   const skillMetas = skillEngine.getAllSkillMetas();
   logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Loaded ${skillMetas.length} skills`, createdAt: new Date() });

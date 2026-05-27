@@ -56,6 +56,38 @@ def health_check():
     })
 
 
+@api_bp.route('/switch_model', methods=['POST'])
+def switch_model():
+    """重新加载TTS模型（当前端切换角色时调用）"""
+    global _synthesizer
+    try:
+        body = request.get_json() or {}
+        character_id = body.get('character_id')
+        
+        from config import Config
+        # 清理原有的类属性缓存
+        Config._gpt_model_path = None
+        Config._sovits_model_path = None
+        
+        # 强制设置加载某个指定角色
+        if character_id:
+            Config.CURRENT_CHARACTER_ID_OVERRIDE = character_id
+            
+        cfg = Config.get_instance()
+        _synthesizer = None # 清空之前的合成器以释放内存/旧模型
+        
+        # 预加载新的合成器
+        get_synthesizer()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Model switched to {character_id}' if character_id else 'Model reloaded'
+        })
+    except Exception as e:
+        logger.error(f"switch_model error: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @api_bp.route('/synthesize', methods=['POST'])
 def synthesize():
     try:

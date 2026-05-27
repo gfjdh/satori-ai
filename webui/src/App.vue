@@ -13,6 +13,7 @@ import { RouterLink, RouterView } from 'vue-router'
         <li><RouterLink to="/">首页</RouterLink></li>
         <li><RouterLink to="/chat">对话测试</RouterLink></li>
         <li><RouterLink to="/status">状态面板</RouterLink></li>
+        <li><RouterLink to="/characters">角色管理</RouterLink></li>
         <li><RouterLink to="/database">数据库</RouterLink></li>
       </ul>
     </nav>
