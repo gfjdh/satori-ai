@@ -3,6 +3,7 @@
  */
 
 import { dialogueDb } from '../db/database.js';
+import { getCharacterName } from '../character/loader.js';
 
 export function getDialogueStats(): string {
   const now = new Date();
@@ -23,7 +24,7 @@ export function getDialogueStats(): string {
     : null;
 
   let stats = `## 对话统计
-对话统计记录了角色与用户的互动频次，如果近期互动相比之前较少，可以适当向用户表达对他们的思念和关心。
+对话统计记录了${getCharacterName()}与用户的互动频次，如果近期互动相比之前较少，可以适当向用户表达对他们的思念和关心。
 - 总对话轮次：${totalCount}
 - 最近一年：${yearCount}
 - 最近一月：${monthCount}
@@ -49,7 +50,7 @@ export function getRecentDialoguesText(limit: number = 20): string {
   return recentDialogues.reverse().map(d => {
     const time = d.createdAt.toISOString().replace('T', ' ').slice(0, 16);
     return d.userContent === '[Proactive]'
-      ? `[${time}] 角色主动发起对话\n[${time}] 角色：${d.aiContent}`
-      : `[${time}] 用户：${d.userContent}\n[${time}] 角色：${d.aiContent}`;
+      ? `[${time}] ${getCharacterName()}主动发起对话\n[${time}] ${getCharacterName()}：${d.aiContent}`
+      : `[${time}] 用户：${d.userContent}\n[${time}] ${getCharacterName()}：${d.aiContent}`;
   }).join('\n');
 }

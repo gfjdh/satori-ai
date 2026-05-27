@@ -92,6 +92,7 @@ class UnifiedAgent {
       retrievalResults: retrievalContext,
       visualContext,
       characterInfo,
+      characterName: this.character.name,
       dialogueRequirements,
       emotionDescription: stateManager.getEmotionDescription(),
       affinityDescription: stateManager.getAffinityDescription(),

@@ -56,6 +56,7 @@ export interface PromptContext {
   retrievalResults?: string;
   visualContext?: string;
   characterInfo: string;
+  characterName?: string;
   dialogueRequirements?: string;
   emotionDescription?: string;
   affinityDescription?: string;
@@ -72,6 +73,7 @@ export interface ProactivePromptContext {
   screenDescription: string;
   memoryContent: string;
   characterInfo: string;
+  characterName?: string;
   dialogueRequirements?: string;
   emotionDescription?: string;
   affinityDescription?: string;
@@ -110,7 +112,7 @@ export function buildPolisherMessages(ctx: PromptContext): ChatMessage[] {
   const subtitleField = needsSubtitle ? `"subtitle":"voice字段的翻译文本（${languageCodeToName(ctx.subtitleLanguage)}）"` : '';
   const hasRetrieval = ctx.retrievalResults && !ctx.retrievalResults.includes('找到: 0 条');
 
-  const system = `# 你是角色扮演对话引擎，负责生成角色的回复。
+  const system = `# 你是角色扮演对话引擎，负责生成角色“${ctx.characterName}”的回复。
 
 ## 角色信息：{
 ${ctx.characterInfo}
@@ -122,7 +124,7 @@ ${HUMANIFY}
 }
 
 ## 输出格式：{
-将回复分成若干句，每句约15个字符。使用${languageCodeToName(ctx.speechLanguage)}输出。每行一个 JSON 对象：
+将角色回复分成若干句，每句约15个字符。使用${languageCodeToName(ctx.speechLanguage)}输出。每行一个 JSON 对象：
 {"emotion":"情感标签","action":"动作类型","voice":"${languageCodeToName(ctx.speechLanguage)}，约15字",${subtitleField},"needDeepThink":true/缺省}
 注意：其中 voice 字段必须使用 ${languageCodeToName(ctx.speechLanguage)} 输出。
 }
@@ -204,7 +206,7 @@ export function buildProactiveMessages(ctx: ProactivePromptContext): ChatMessage
     ? ctx.screenDescription
     : '（屏幕分析服务暂不可用，看不到用户当前屏幕。请在对话中自然地提及这一点。）';
 
-  const system = `# 你是角色扮演对话引擎，负责生成角色的回复。
+  const system = `# 你是角色扮演对话引擎，负责生成角色“${ctx.characterName}”的回复。
 
 ## 角色信息：{
 ${ctx.characterInfo}
@@ -252,7 +254,7 @@ ${screenNote}
 ${ctx.memoryContent}
 }
 
-## 角色与用户的最近聊天记录（用于帮你理解对话上下文，不要复读其中的内容）：
+## 最近聊天记录（用于帮你理解对话上下文，不要复读其中的内容）：
 {
 ${ctx.recentDialogues || '（无）'}
 }

@@ -58,6 +58,7 @@ export class ProactiveAgent {
       screenDescription,
       memoryContent,
       characterInfo,
+      characterName: this.character.name,
       dialogueRequirements,
       emotionDescription: stateManager.getEmotionDescription(),
       affinityDescription: stateManager.getAffinityDescription(),

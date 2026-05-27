@@ -4,6 +4,7 @@ import { callLLM, getLLMConfig } from '../api/llm.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Memory } from '../types/index.js';
 import { generateAndStoreEmbedding } from '../retrieval/vector-search.js';
+import { getCharacterName } from '../character/loader.js';
 
 // 当前话题追踪（不做逐轮总结，只在话题切换时归档）
 let currentTopicStartTime: Date | null = null;
@@ -21,6 +22,13 @@ const GRANULARITY_CONFIGS: GranularityConfig[] = [
   { name: 'month', childGranularity: 'week', summaryThresholdMs: 4 * 7 * 24 * 60 * 60 * 1000 },
   { name: 'year', childGranularity: 'month', summaryThresholdMs: 365 * 24 * 60 * 60 * 1000 },
 ];
+
+const ARCHIVE_PROMPT = `请以JSON格式返回，不要包含其他任何内容：
+{
+  "topic": "话题名称（简短，几个字）",
+  "summary": "对话总结（要简洁而全面，尽可能高密度地保留信息，最多200字左右）",
+  "user_state": "从对话推断用户当前状态：在做什么、工作/生活节奏、情绪状态等。无信息则填'未知'。50字内。"
+}`;
 
 // ========== 记忆管理器 ==========
 class MemoryManager {
@@ -41,7 +49,7 @@ class MemoryManager {
     if (recentDialogues.length <= 5) return false;
 
     const dialogueText = recentDialogues.map(d =>
-      d.userContent === '[Proactive]' ? `角色：${d.aiContent}` : `用户：${d.userContent}\n角色：${d.aiContent}`
+      d.userContent === '[Proactive]' ? `${getCharacterName()}：${d.aiContent}` : `用户：${d.userContent}\n${getCharacterName()}：${d.aiContent}`
     ).join('\n');
 
     const prompt = `最近对话：
@@ -76,7 +84,7 @@ ${dialogueText}
     if (dialogues.length === 0) return;
 
     const dialogueText = dialogues.map(d =>
-      d.userContent === '[Proactive]' ? `角色：${d.aiContent}` : `用户：${d.userContent}\n角色：${d.aiContent}`
+      d.userContent === '[Proactive]' ? `${getCharacterName()}：${d.aiContent}` : `用户：${d.userContent}\n${getCharacterName()}：${d.aiContent}`
     ).join('\n---\n');
 
     const config = getLLMConfig();
@@ -84,12 +92,7 @@ ${dialogueText}
 
 ${dialogueText}
 
-请以JSON格式返回，不要包含其他任何内容：
-{
-  "topic": "话题名称（简短，几个字）",
-  "summary": "对话总结（要简洁而全面，尽可能高密度地保留信息，最多200字左右）",
-  "user_state": "从对话推断用户当前状态：在做什么、工作/生活节奏等。无信息则填'未知'。50字内。"
-}`;
+${ARCHIVE_PROMPT}`;
 
     try {
       const response = await callLLM({
@@ -223,7 +226,7 @@ ${memoryText}
 
 要求在保留主要内容的同时尽可能简洁，提取核心内容，以最高效的方式存储信息。500字以内。
 请以JSON格式返回：
-{"summary": "这段时期对话内容的整体总结", "user_state": "根据对话分析这段时间用户的状态，要考虑包括但不限于时间、作息、行为、目标、变化趋势等因素，综合体现用户的工作生活学习状态。100字内。"}`;
+{"summary": "这段时期对话内容的整体总结", "user_state": "根据对话分析这段时间用户的状态，要考虑包括但不限于时间、作息、行为、目标、变化趋势等因素，尽可能完整反映这段时间用户的日程和状态。100字内。"}`;
 
     try {
       const config = getLLMConfig();
@@ -377,19 +380,15 @@ ${memoryText}
 
     // 3. 构建对话摘要prompt
     const dialogueText = unarchivedDialogues
-      .map(d => d.userContent === '[Proactive]' ? `角色：${d.aiContent}` : `用户：${d.userContent}\n角色：${d.aiContent}`)
+      .map(d => d.userContent === '[Proactive]' ? `${getCharacterName()}：${d.aiContent}` : `用户：${d.userContent}\n${getCharacterName()}：${d.aiContent}`)
       .join('\n---\n');
 
     const summaryPrompt = `请总结以下一段时期的对话，提取核心话题和关键内容：
 
 ${dialogueText}
 
-请以JSON格式返回，不要包含其他任何内容：
-{
-  "topic": "话题名称（简短，几个字）",
-  "summary": "对话总结（要简洁而全面，尽可能高密度地保留信息，最多500字左右，优先删除与核心话题关联最小的内容）",
-  "user_state": "从对话推断用户当前状态：在做什么、工作/生活节奏、情绪基调、是否疲惫/兴奋等。无信息则填'未知'。20字内。"
-}`;
+${ARCHIVE_PROMPT}
+`;
 
     // 4. 调用LLM生成总结
     const config = getLLMConfig();
