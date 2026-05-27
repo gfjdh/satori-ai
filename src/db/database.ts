@@ -23,7 +23,10 @@ export function now(): Date {
   return new Date(Date.now() + TZ_OFFSET);
 }
 
-/** 一次性迁移：将数据库中所有UTC时间字段偏移+8h */
+/** 一次性迁移：将数据库中所有UTC时间字段偏移+8h 
+ * 注意：这个函数设计为幂等的，运行一次后会在 system_state 记录迁移状态，避免重复迁移导致时间错乱。
+ * 数据迁移后即可删除这个函数和相关的系统状态记录逻辑。
+*/
 function migrateToUTC8(): void {
   const row = db.prepare(
     "SELECT value FROM system_state WHERE id = 'db_tz_migrated' AND character_id = '__system__'"
