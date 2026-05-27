@@ -56,7 +56,7 @@ onMounted(async () => {
               <div class="dimension-bar emotion">
                 <div class="dimension-fill" :style="{ width: ((value + 100) / 2) + '%' }"></div>
               </div>
-              <span class="dimension-value">{{ value }}</span>
+              <span class="dimension-value">{{ value.toFixed(2) }}</span>
             </div>
           </div>
         </div>
