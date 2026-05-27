@@ -325,9 +325,8 @@ function formatRetrievalContext(results: RetrievalResult[]): string {
       let label = `[${r.source}]`;
 
       if (r.source === 'memory' && r.metadata.granularity) {
-        const isTopic = r.metadata.granularity === 'topic';
         const period = r.metadata.periodStart && r.metadata.periodEnd
-          ? `${formatDate(r.metadata.periodEnd, isTopic)}`
+          ? `${formatDate(r.metadata.periodStart)}~${formatDate(r.metadata.periodEnd)}`
           : '';
         label = `[${r.metadata.granularity}${period ? ' ' + period : ''}]`;
       } else if (r.source === 'knowledge' && r.metadata.category) {
@@ -340,14 +339,9 @@ function formatRetrievalContext(results: RetrievalResult[]): string {
     .join('\n');
 }
 
-function formatDate(isoString: string, includeTime = false): string {
+function formatDate(isoString: string): string {
   const d = new Date(isoString);
-  const datePart = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  if (includeTime) {
-    const timePart = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-    return `${datePart} ${timePart}`;
-  }
-  return datePart;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 /**

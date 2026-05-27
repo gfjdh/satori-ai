@@ -15,14 +15,6 @@ if (!fs.existsSync(dataDir)) {
 const db: DatabaseType = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 
-// UTC+8 时区偏移（东八区）
-const TZ_OFFSET = 8 * 60 * 60 * 1000;
-
-/** 将数据库存储的UTC时间转为东八区本地时间 */
-function toLocalDate(utcIso: string): Date {
-  return new Date(new Date(utcIso).getTime() + TZ_OFFSET);
-}
-
 // ========== 初始化表结构 ==========
 db.exec(`
   -- 对话原始记录表
@@ -129,7 +121,7 @@ export const dialogueDb = {
       characterId: row.character_id,
       userContent: row.user_content,
       aiContent: row.ai_content,
-      createdAt: toLocalDate(row.created_at)
+      createdAt: new Date(row.created_at)
     }));
   },
 
@@ -164,7 +156,7 @@ export const dialogueDb = {
       characterId: row.character_id,
       userContent: row.user_content,
       aiContent: row.ai_content,
-      createdAt: toLocalDate(row.created_at)
+      createdAt: new Date(row.created_at)
     }));
   },
 
@@ -179,7 +171,7 @@ export const dialogueDb = {
       characterId: row.character_id,
       userContent: row.user_content,
       aiContent: row.ai_content,
-      createdAt: toLocalDate(row.created_at)
+      createdAt: new Date(row.created_at)
     }));
   }
 };
@@ -263,9 +255,9 @@ export const memoryDb = {
       granularity: row.granularity,
       content: row.content,
       userState: row.user_state ?? null,
-      periodStart: toLocalDate(row.period_start),
-      periodEnd: toLocalDate(row.period_end),
-      createdAt: toLocalDate(row.created_at)
+      periodStart: new Date(row.period_start),
+      periodEnd: new Date(row.period_end),
+      createdAt: new Date(row.created_at)
     }));
   },
 
@@ -278,9 +270,9 @@ export const memoryDb = {
       content: row.content,
       userState: row.user_state ?? null,
       embedding: row.embedding,
-      periodStart: toLocalDate(row.period_start),
-      periodEnd: toLocalDate(row.period_end),
-      createdAt: toLocalDate(row.created_at)
+      periodStart: new Date(row.period_start),
+      periodEnd: new Date(row.period_end),
+      createdAt: new Date(row.created_at)
     }));
   },
 
@@ -293,9 +285,9 @@ export const memoryDb = {
       content: row.content,
       userState: row.user_state ?? null,
       embedding: row.embedding ? Buffer.from(row.embedding) : null,
-      periodStart: toLocalDate(row.period_start),
-      periodEnd: toLocalDate(row.period_end),
-      createdAt: toLocalDate(row.created_at)
+      periodStart: new Date(row.period_start),
+      periodEnd: new Date(row.period_end),
+      createdAt: new Date(row.created_at)
     }));
   },
 
@@ -314,9 +306,9 @@ export const memoryDb = {
       granularity: row.granularity,
       content: row.content,
       userState: row.user_state ?? null,
-      periodStart: toLocalDate(row.period_start),
-      periodEnd: toLocalDate(row.period_end),
-      createdAt: toLocalDate(row.created_at)
+      periodStart: new Date(row.period_start),
+      periodEnd: new Date(row.period_end),
+      createdAt: new Date(row.created_at)
     }));
   }
 };
@@ -374,7 +366,7 @@ export const taskDb = {
       enabled: row.enabled === 1,
       lastRun: row.last_run ? new Date(row.last_run) : null,
       nextRun: new Date(row.next_run),
-      createdAt: toLocalDate(row.created_at)
+      createdAt: new Date(row.created_at)
     }));
   },
 
@@ -390,7 +382,7 @@ export const taskDb = {
       enabled: row.enabled === 1,
       lastRun: row.last_run ? new Date(row.last_run) : null,
       nextRun: new Date(row.next_run),
-      createdAt: toLocalDate(row.created_at)
+      createdAt: new Date(row.created_at)
     }));
   }
 };
@@ -479,7 +471,7 @@ export const knowledgeDb = {
       content: row.content,
       embedding: row.embedding,
       source: row.source,
-      createdAt: toLocalDate(row.created_at)
+      createdAt: new Date(row.created_at)
     }));
   },
 
@@ -492,7 +484,7 @@ export const knowledgeDb = {
       content: row.content,
       embedding: row.embedding ? Buffer.from(row.embedding) : null,
       source: row.source,
-      createdAt: toLocalDate(row.created_at)
+      createdAt: new Date(row.created_at)
     }));
   },
 
@@ -570,7 +562,7 @@ export const logDb = {
       level: row.level,
       category: row.category,
       content: row.content,
-      createdAt: toLocalDate(row.created_at)
+      createdAt: new Date(row.created_at)
     }));
   },
 
@@ -591,7 +583,7 @@ export const logDb = {
       const stmt = db.prepare('SELECT * FROM logs ORDER BY created_at ASC');
       const rows = stmt.all() as any[];
       const logContent = rows.map(l =>
-        `[${new Date(new Date(l.created_at).getTime() + TZ_OFFSET).toISOString()}] [${l.level.toUpperCase()}] [${l.category}] ${l.content}`
+        `[${new Date(l.created_at).toISOString()}] [${l.level.toUpperCase()}] [${l.category}] ${l.content}`
       ).join('\n');
 
       fs.appendFileSync(logFile, logContent + '\n');
