@@ -6,6 +6,7 @@ import { Memory } from '../types/index.js';
 import { generateAndStoreEmbedding } from '../retrieval/vector-search.js';
 import { getCharacterName } from '../character/loader.js';
 import { getCurrentCharacterId } from '../character/knowledge.js';
+import { userProfileManager } from '../user/profile.js';
 
 // 当前话题追踪（不做逐轮总结，只在话题切换时归档）
 let currentTopicStartTime: Date | null = null;
@@ -188,7 +189,10 @@ ${ARCHIVE_PROMPT}`;
       const elapsed = now.getTime() - summaryStart.getTime();
       if (elapsed >= config.summaryThresholdMs) {
         const gran = config.name as 'day' | 'week' | 'month' | 'year';
-        await this.performSummaryFor(gran, config.childGranularity as 'topic' | 'day' | 'week' | 'month', summaryStart, now);
+        const result = await this.performSummaryFor(gran, config.childGranularity as 'topic' | 'day' | 'week' | 'month', summaryStart, now);
+        if (result && gran === 'day') {
+          await userProfileManager.summarizeFromMemories(result.summaryContent, result.relevantMemories);
+        }
       }
     }
   }
@@ -199,7 +203,7 @@ ${ARCHIVE_PROMPT}`;
     subGranularity: 'topic' | 'day' | 'week' | 'month',
     startDate: Date,
     endDate: Date
-  ): Promise<void> {
+  ): Promise<{ summaryContent: string; relevantMemories: Memory[] } | null> {
     // 召回子粒度级别的记忆
     const allSubMemories = memoryDb.getByGranularity(subGranularity, 1000);
 
@@ -210,7 +214,7 @@ ${ARCHIVE_PROMPT}`;
     });
 
     if (relevantMemories.length < 1) {
-      return;
+      return null;
     }
 
     // 构建总结内容（包含此时段用户状态）
@@ -262,10 +266,13 @@ ${memoryText}
         });
 
         logDb.insert({ id: uuidv4(), level: 'info', category: 'agent', content: `Created ${granularity} summary with ${relevantMemories.length} sub-memories`, createdAt: endDate });
+
+        return { summaryContent: parsed.summary, relevantMemories };
       }
     } catch (error) {
       logDb.insert({ id: uuidv4(), level: 'error', category: 'agent', content: `Failed to create ${granularity} summary: ${error}`, createdAt: new Date() });
     }
+    return null;
   }
 
   // 格式化时间范围

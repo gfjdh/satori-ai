@@ -1,5 +1,21 @@
 // ========== 类型定义 ==========
 
+// 用户画像条目
+export interface UserProfileEntry {
+  key: string;           // LLM 生成的语义键，如 "name"、"favorite_food"
+  category: string;      // identity | preference | aversion | requirement | habit | fact
+  content: string;       // 实际内容
+  importance: number;    // 0-50
+  createdAt: string;     // ISO
+  updatedAt: string;     // ISO
+}
+
+// 用户画像
+export interface UserProfile {
+  entries: UserProfileEntry[];
+  lastSummarizedAt: string;
+}
+
 // 好高度状态
 export interface AffinityState {
   characterId: string;

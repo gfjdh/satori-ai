@@ -13,6 +13,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Dialogue, SSEMessage, Memory } from '../types/index.js';
 import { getAvailableEmotions } from '../tts/client.js';
 import { loadDefaultCharacter, type CharacterConfig } from '../character/loader.js';
+import { userProfileManager } from '../user/profile.js';
 
 import { buildProactiveMessages, type ChatMessage } from './prompts.js';
 import { parseSegment, emitSegment } from './segment-utils.js';
@@ -66,7 +67,8 @@ export class ProactiveAgent {
       recentDialogues: combinedContext,
       availableEmotions,
       speechLanguage,
-      subtitleLanguage
+      subtitleLanguage,
+      userProfile: userProfileManager.getProfileContext()
     });
 
     if (signal?.aborted) return '';

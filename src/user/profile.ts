@@ -1,173 +1,256 @@
-import fs from 'fs';
-import path from 'path';
-import { v4 as uuidv4 } from 'uuid';
-import { logDb } from '../db/database.js';
+import { stateDb, logDb } from '../db/database.js';
+import { callLLM, getLLMConfig } from '../api/llm.js';
+import { getCurrentCharacterId } from '../character/knowledge.js';
+import type { UserProfile, UserProfileEntry, Memory } from '../types/index.js';
 
-// 用户画像条目
-export interface UserProfileEntry {
-  id: string;
-  content: string;
-  importance: number; // 1-5，越高越重要
-  category: string; // 'personality' | 'habit' | 'preference' | 'other'
-  createdAt: string;
-  updatedAt: string;
-}
+const PROFILE_KEY = 'user_profile';
+const MAX_ENTRIES = 60;
+const MAX_CONTEXT_ENTRIES = 30;
 
-// 用户画像
-export interface UserProfile {
-  entries: UserProfileEntry[];
-  lastSummary: string; // 上次总结时间
-}
+const CATEGORIES = ['identity', 'preference', 'aversion', 'requirement', 'habit', 'fact'] as const;
 
-const DATA_DIR = path.join(process.cwd(), 'data');
-const PROFILE_PATH = path.join(DATA_DIR, 'user_profile.json');
+const SUMMARIZE_PROMPT = `你是一个用户画像分析器。根据最近一天的对话记忆，更新用户画像。
 
-// 确保data目录存在
-function ensureDataDir(): void {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-}
+## 类别
+- identity: 身份信息（姓名、年龄、职业、性别）
+- preference: 喜好
+- aversion: 厌恶/禁忌
+- requirement: 长期要求
+- habit: 习惯
+- fact: 其他事实
 
-// 加载用户画像
-export function loadUserProfile(): UserProfile {
-  ensureDataDir();
+## 重要性评分标准（0-50）
+45-50: 核心身份（姓名、年龄、性别、职业）
+35-44: 重要个人特征（生日、家庭成员、过敏信息）
+25-34: 长期稳定偏好/禁忌（宗教饮食限制、根深蒂固的好恶）
+15-24: 一般偏好/习惯（喜欢的食物、日常作息）
+5-14: 临时/变化中信息（近期兴趣、短期目标）
+1-4: 琐碎信息（随口提的小事）
 
-  if (!fs.existsSync(PROFILE_PATH)) {
-    const defaultProfile: UserProfile = {
-      entries: [],
-      lastSummary: new Date().toISOString()
-    };
-    saveUserProfile(defaultProfile);
-    return defaultProfile;
-  }
+## key 命名规则
+- 使用简短的标题
+- 要有语义，能一眼看出是什么信息
+- 示例：名字，年龄，工作，生日，喜爱食物
 
-  try {
-    const content = fs.readFileSync(PROFILE_PATH, 'utf-8');
-    return JSON.parse(content);
-  } catch (error) {
-    logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'agent', content: `Failed to load profile: ${error}`, createdAt: new Date() });
-    return { entries: [], lastSummary: new Date().toISOString() };
-  }
-}
+## 规则
+1. 每条信息必须独立、原子化。不要在一个条目里堆砌多种信息，也不要把同一类信息分多个条目，如果出现这种情况，尝试拆分或合并成合理的条目。
+2. 只输出与现有画像相比有变化的条目。没有变化的条目不输出。
+3. 如果某条旧信息被新信息覆盖/矛盾，放入 modified；如果某条信息已过时或用户明确否定了，放入 deleted。
 
-// 保存用户画像
-export function saveUserProfile(profile: UserProfile): void {
-  ensureDataDir();
-  fs.writeFileSync(PROFILE_PATH, JSON.stringify(profile, null, 2), 'utf-8');
-}
+## 输出格式（严格JSON，不要其他内容）
+{
+  "added": [
+    { "key": "字段名", "category": "类别", "content": "内容描述", "importance": 数字 }
+  ],
+  "modified": [
+    { "key": "已有字段名", "content": "更新后的内容", "importance": 数字 }
+  ],
+  "deleted": ["要删除的字段名"]
+}`;
 
-// 添加画像条目
-export function addProfileEntry(
-  content: string,
-  category: UserProfileEntry['category'],
-  importance: number = 3
-): UserProfileEntry {
-  const profile = loadUserProfile();
-
-  const entry: UserProfileEntry = {
-    id: uuidv4(),
-    content,
-    importance: Math.max(1, Math.min(5, importance)),
-    category,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-
-  profile.entries.push(entry);
-
-  // 限制最大条目数（100条），删除重要性最低的
-  if (profile.entries.length > 100) {
-    profile.entries.sort((a, b) => a.importance - b.importance);
-    profile.entries = profile.entries.slice(0, 100);
-  }
-
-  saveUserProfile(profile);
-  return entry;
-}
-
-// 更新画像条目
-export function updateProfileEntry(
-  id: string,
-  updates: Partial<Pick<UserProfileEntry, 'content' | 'importance' | 'category'>>
-): boolean {
-  const profile = loadUserProfile();
-  const entry = profile.entries.find(e => e.id === id);
-
-  if (!entry) {
-    return false;
-  }
-
-  if (updates.content !== undefined) {
-    entry.content = updates.content;
-  }
-  if (updates.importance !== undefined) {
-    entry.importance = Math.max(1, Math.min(5, updates.importance));
-  }
-  if (updates.category !== undefined) {
-    entry.category = updates.category;
-  }
-  entry.updatedAt = new Date().toISOString();
-
-  saveUserProfile(profile);
-  return true;
-}
-
-// 删除画像条目
-export function deleteProfileEntry(id: string): boolean {
-  const profile = loadUserProfile();
-  const index = profile.entries.findIndex(e => e.id === id);
-
-  if (index === -1) {
-    return false;
-  }
-
-  profile.entries.splice(index, 1);
-  saveUserProfile(profile);
-  return true;
-}
-
-// 获取画像条目（按分类筛选）
-export function getProfileEntries(category?: UserProfileEntry['category']): UserProfileEntry[] {
-  const profile = loadUserProfile();
-
-  if (category) {
-    return profile.entries.filter(e => e.category === category);
-  }
-
-  return profile.entries.sort((a, b) => b.importance - a.importance);
-}
-
-// 更新总结时间
-export function updateLastSummary(): void {
-  const profile = loadUserProfile();
-  profile.lastSummary = new Date().toISOString();
-  saveUserProfile(profile);
-}
-
-// 获取用户画像描述（用于插入prompt）
-export function getUserProfileDescription(): string {
-  const entries = getProfileEntries();
-
-  if (entries.length === 0) {
-    return '用户画像：暂无信息';
-  }
-
-  const parts: string[] = ['用户画像：'];
-
-  // 按分类分组
-  const byCategory: Record<string, UserProfileEntry[]> = {};
-  for (const entry of entries) {
-    if (!byCategory[entry.category]) {
-      byCategory[entry.category] = [];
+class UserProfileManager {
+  getProfile(): UserProfile {
+    const characterId = getCurrentCharacterId();
+    const raw = stateDb.get(characterId, PROFILE_KEY);
+    if (!raw) {
+      return { entries: [], lastSummarizedAt: '' };
     }
-    byCategory[entry.category].push(entry);
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return { entries: [], lastSummarizedAt: '' };
+    }
   }
 
-  for (const [cat, catEntries] of Object.entries(byCategory)) {
-    const items = catEntries.map(e => e.content).join('、');
-    parts.push(`${cat}：${items}`);
+  private saveProfile(profile: UserProfile): void {
+    const characterId = getCurrentCharacterId();
+    stateDb.set(characterId, PROFILE_KEY, JSON.stringify(profile));
   }
 
-  return parts.join('\n');
+  async summarizeFromMemories(
+    daySummaryContent: string,
+    topicMemories: Memory[]
+  ): Promise<void> {
+    const profile = this.getProfile();
+    const now = new Date().toISOString();
+
+    const topicsText = topicMemories
+      .map(m => {
+        const base = `[${m.periodStart?.toString() || ''}] ${m.content}`;
+        return m.userState ? `${base}\n用户状态: ${m.userState}` : base;
+      })
+      .join('\n---\n');
+
+    const prompt = `## 现有用户画像
+${JSON.stringify(profile.entries, null, 2)}
+
+## 最近一天的对话总结
+${daySummaryContent}
+
+## 该时段内的详细话题记忆
+${topicsText}
+
+请根据以上信息，输出画像的增删改（JSON格式）：`;
+
+    try {
+      const config = getLLMConfig();
+      const response = await callLLM({
+        model: config.model,
+        messages: [
+          { role: 'system', content: SUMMARIZE_PROMPT },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.1,
+        thinking: true
+      });
+
+      const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        logDb.insert({
+          id: crypto.randomUUID(),
+          level: 'warn',
+          category: 'user_profile',
+          content: `Failed to parse LLM response as JSON: ${response.content.slice(0, 200)}`,
+          createdAt: new Date()
+        });
+        return;
+      }
+
+      const delta = JSON.parse(jsonMatch[0]);
+      this.applyDelta(profile, delta, now);
+      profile.lastSummarizedAt = now;
+      this.saveProfile(profile);
+
+      const addedCount = delta.added?.length ?? 0;
+      const modifiedCount = delta.modified?.length ?? 0;
+      const deletedCount = delta.deleted?.length ?? 0;
+      logDb.insert({
+        id: crypto.randomUUID(),
+        level: 'info',
+        category: 'user_profile',
+        content: `Profile updated: +${addedCount} ~${modifiedCount} -${deletedCount}, total ${profile.entries.length} entries`,
+        createdAt: new Date()
+      });
+    } catch (error) {
+      logDb.insert({
+        id: crypto.randomUUID(),
+        level: 'error',
+        category: 'user_profile',
+        content: `Failed to summarize profile: ${error}`,
+        createdAt: new Date()
+      });
+    }
+  }
+
+  private applyDelta(
+    profile: UserProfile,
+    delta: { added?: Array<{ key: string; category: string; content: string; importance: number }>; modified?: Array<{ key: string; content?: string; importance?: number }>; deleted?: string[] },
+    now: string
+  ): void {
+    // 新增
+    for (const item of delta.added ?? []) {
+      if (!item.key || !item.content) continue;
+      const category = CATEGORIES.includes(item.category as typeof CATEGORIES[number]) ? item.category : 'fact';
+      profile.entries.push({
+        key: item.key,
+        category,
+        content: item.content,
+        importance: Math.max(0, Math.min(50, Math.round(item.importance ?? 10))),
+        createdAt: now,
+        updatedAt: now
+      });
+    }
+
+    // 修改
+    for (const item of delta.modified ?? []) {
+      if (!item.key) continue;
+      const existing = profile.entries.find(e => e.key === item.key);
+      if (existing) {
+        if (item.content !== undefined) existing.content = item.content;
+        if (item.importance !== undefined) existing.importance = Math.max(0, Math.min(50, Math.round(item.importance)));
+        existing.updatedAt = now;
+      } else if (item.content) {
+        // key 不存在，视为新增
+        profile.entries.push({
+          key: item.key,
+          category: 'fact',
+          content: item.content,
+          importance: Math.max(0, Math.min(50, Math.round(item.importance ?? 10))),
+          createdAt: now,
+          updatedAt: now
+        });
+      }
+    }
+
+    // 删除
+    if (delta.deleted) {
+      const deleteSet = new Set(delta.deleted);
+      profile.entries = profile.entries.filter(e => !deleteSet.has(e.key));
+    }
+
+    // 去重：同 key 保留最新的
+    const seen = new Map<string, UserProfileEntry>();
+    for (const e of profile.entries) {
+      const existing = seen.get(e.key);
+      if (!existing || e.updatedAt > existing.updatedAt) {
+        seen.set(e.key, e);
+      }
+    }
+    profile.entries = Array.from(seen.values());
+
+    // 淘汰：超出上限按 importance ASC, updatedAt ASC 删除
+    if (profile.entries.length > MAX_ENTRIES) {
+      profile.entries.sort((a, b) => {
+        const impDiff = a.importance - b.importance;
+        if (impDiff !== 0) return impDiff;
+        return a.updatedAt.localeCompare(b.updatedAt);
+      });
+      profile.entries = profile.entries.slice(profile.entries.length - MAX_ENTRIES);
+    }
+  }
+
+  getProfileContext(): string {
+    const profile = this.getProfile();
+    if (profile.entries.length === 0) return '';
+
+    // 按 importance 降序
+    const sorted = [...profile.entries].sort((a, b) => b.importance - a.importance);
+    const topEntries = sorted.slice(0, MAX_CONTEXT_ENTRIES);
+
+    // 按 category 分组
+    const categoryLabels: Record<string, string> = {
+      identity: '身份信息',
+      preference: '喜好',
+      aversion: '厌恶',
+      requirement: '长期要求',
+      habit: '习惯',
+      fact: '其他'
+    };
+
+    const groups = new Map<string, UserProfileEntry[]>();
+    for (const e of topEntries) {
+      const existing = groups.get(e.category);
+      if (existing) {
+        existing.push(e);
+      } else {
+        groups.set(e.category, [e]);
+      }
+    }
+
+    // 按固定顺序输出类别
+    const lines: string[] = [];
+    for (const cat of CATEGORIES) {
+      const entries = groups.get(cat);
+      if (!entries || entries.length === 0) continue;
+      lines.push(`[用户画像 - ${categoryLabels[cat] || cat}]`);
+      for (const e of entries) {
+        lines.push(`- ${e.key}: ${e.content}`);
+      }
+    }
+
+    return lines.join('\n');
+  }
 }
+
+export const userProfileManager = new UserProfileManager();
+export default UserProfileManager;

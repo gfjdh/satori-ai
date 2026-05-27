@@ -421,6 +421,14 @@ export const stateDb = {
 
   setEmotion(characterId: string, emotion: EmotionState): void {
     stateDb.set(characterId, 'emotion', JSON.stringify(emotion));
+  },
+
+  getUserProfile(characterId: string): string | null {
+    return stateDb.get(characterId, 'user_profile');
+  },
+
+  setUserProfile(characterId: string, profile: string): void {
+    stateDb.set(characterId, 'user_profile', profile);
   }
 };
 

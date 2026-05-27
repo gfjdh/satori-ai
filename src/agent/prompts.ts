@@ -67,6 +67,7 @@ export interface PromptContext {
   recentSkillsContext?: string;
   speechLanguage?: string;
   subtitleLanguage?: string;
+  userProfile?: string;
 }
 
 export interface ProactivePromptContext {
@@ -82,6 +83,7 @@ export interface ProactivePromptContext {
   availableEmotions?: string[];
   speechLanguage?: string;
   subtitleLanguage?: string;
+  userProfile?: string;
 }
 
 export interface ChatMessage {
@@ -146,7 +148,8 @@ ${needsSubtitle ? SUBTITLE_NOTE : ''}
 `;
 
   const user = `
-## 当前状态：{
+${ctx.userProfile ? '## 用户画像：{\n' + ctx.userProfile + '\n}\n' : ''}
+## 角色当前状态：{
 情绪：${ctx.emotionDescription || ''}
 关系：${ctx.affinityDescription || ''}
 对话统计：${ctx.dialogueStats || ''}
@@ -238,7 +241,8 @@ ${needsSubtitle ? SUBTITLE_NOTE : ''}
 `;
 
   const user = `
-## 当前状态：{
+${ctx.userProfile ? '## 用户画像：{\n' + ctx.userProfile + '\n}\n' : ''}
+## 角色当前状态：{
 情绪：${ctx.emotionDescription || ''}
 关系：${ctx.affinityDescription || ''}
 对话统计：${ctx.dialogueStats || ''}

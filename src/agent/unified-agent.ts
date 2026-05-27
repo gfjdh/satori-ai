@@ -20,6 +20,7 @@ import { Dialogue, SSEMessage } from '../types/index.js';
 import { skillEngine } from '../skills/engine.js';
 import { getAvailableEmotions } from '../tts/client.js';
 import { loadDefaultCharacter, type CharacterConfig } from '../character/loader.js';
+import { userProfileManager } from '../user/profile.js';
 
 import { buildPolisherMessages, buildPolisherResultUser, buildAnalyzerMessages, buildAnalyzerContinuationUser, type ChatMessage } from './prompts.js';
 import { parseSegment, emitSegment } from './segment-utils.js';
@@ -100,7 +101,8 @@ class UnifiedAgent {
       recentDialogues: combinedContext,
       availableEmotions,
       speechLanguage,
-      subtitleLanguage
+      subtitleLanguage,
+      userProfile: userProfileManager.getProfileContext()
     });
 
     // ========== 阶段3：Polisher 驱动的主循环 ==========
