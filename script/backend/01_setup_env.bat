@@ -4,7 +4,11 @@ echo Backend Service - Environment Setup
 echo ========================================
 echo.
 
-cd /d "%~dp0"
+cd /d "%~dp0..\.."
+if not exist "package.json" (
+    echo ERROR: backend directory not found. Expected package.json at %CD%
+    exit /b 1
+)
 
 echo [1/3] Checking Node.js...
 where node >nul 2>&1

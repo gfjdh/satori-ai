@@ -58,11 +58,12 @@ class MemoryManager {
 ${dialogueText}
 用户新消息是："${userMessage}"
 
-话题的标准是：含有具体意义的事物或事件，简单寒暄或互动并不算是话题，所以不算做切换话题。
-例如，从寒暄引入其他话题或者在讨论某些话题时讲了些无关紧要的话都不算是切换话题，只有讨论的中心变了才算切换。
+话题的标准是：一件含有具体意义的事物或事件，简单寒暄或互动并不算是话题，所以不算做切换话题。
+例如，从寒暄引入其他话题或者在讨论某些话题时讲了些无关紧要的话都不算是切换话题，只有引入了新事物并且转移了讨论中心才能算是切换话题。
+如果当前对话较长（8轮对话以上）且用户消息与之前的对话内容没有明显关联，或者引入了新的事物/事件/活动等，也可以判断为切换了话题。
 
-请判断用户有没有转换到新话题，如果是在继续当前话题，请回复"否"，如果切换了话题，请回复"是"。
-只回复"是"或"否"。`;
+请判断用户有没有转换到新话题，如果是在继续当前话题，请回复"没有切换话题"，如果切换了话题，请回复"切换了话题"。
+只回复"切换了话题"或"没有切换话题"。`;
 
     try {
       const response = await callLLM({
@@ -70,7 +71,7 @@ ${dialogueText}
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.1
       });
-      return response.content.includes('是');
+      return response.content.includes('切换了话题');
     } catch (error) {
       logDb.insert({ id: uuidv4(), level: 'error', category: 'agent', content: `Failed to check topic switch: ${error}`, createdAt: new Date() });
       return false;

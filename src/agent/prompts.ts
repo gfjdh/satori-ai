@@ -193,7 +193,9 @@ export function buildPolisherResultUser(rawFindings: string): ChatMessage {
 ${rawFindings || '（无）'}
 }
 
-请基于以上信息接续之前的输出继续回复（保持语义连贯成一段话）。如果信息已充足，不要再设置 needDeepThink。输出JSON的格式与最初要求保持统一，尤其注意各字段的语种。`
+请基于以上信息接续之前的输出继续回复（注意：要保持语义连贯成一段话，不要有重复或矛盾）。
+如果信息已充足，不要再设置 needDeepThink。
+输出JSON的格式与最初要求保持统一，尤其注意各字段的语种。`
   };
 }
 

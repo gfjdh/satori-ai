@@ -4,7 +4,11 @@ echo WebUI Service - Environment Setup
 echo ========================================
 echo.
 
-cd /d "%~dp0webui"
+cd /d "%~dp0..\..\webui"
+if not exist "package.json" (
+    echo ERROR: webui directory not found. Expected package.json at %CD%
+    exit /b 1
+)
 
 echo [1/2] Checking Node.js...
 where node >nul 2>&1
