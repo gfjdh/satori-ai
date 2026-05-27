@@ -8,11 +8,11 @@ import sys
 import os
 import json
 import urllib.request
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QMenu
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QMenu, QSystemTrayIcon
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEngineSettings, QWebEnginePage
 from PySide6.QtCore import QUrl, Qt, QEvent, QPoint, QTimer
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QCursor
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QCursor, QIcon
 
 
 POSITION_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'window_position.json')
@@ -179,6 +179,8 @@ class Live2DWindow(QMainWindow):
         layout.addWidget(self.web_view)
 
         self.setCentralWidget(central)
+
+        self._create_tray_icon()
 
         # --- Dodge state ---
         self._original_pos = None
@@ -401,8 +403,52 @@ class Live2DWindow(QMainWindow):
     def handle_change_costume(self):
         print('变装功能待实现')
 
+    def _create_tray_icon(self):
+        """创建系统托盘图标"""
+        icon_dir = os.path.dirname(os.path.abspath(__file__))
+        icon_path = os.path.join(icon_dir, 'favicon.ico')
+
+        self._tray_icon = QSystemTrayIcon(self)
+        self._tray_icon.setIcon(QIcon(icon_path))
+        self._tray_icon.setToolTip('Satori')
+
+        tray_menu = QMenu()
+        tray_menu.addAction('显示桌宠', self.show_window)
+        tray_menu.addAction('打开管理页面', self.open_admin_page)
+        tray_menu.addSeparator()
+        tray_menu.addAction('退出', self.close_app)
+
+        self._tray_icon.setContextMenu(tray_menu)
+        self._tray_icon.activated.connect(self._on_tray_activated)
+        self._tray_icon.show()
+
+    def _on_tray_activated(self, reason):
+        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+            self.show_window()
+
+    def _notify_visibility(self, visible: bool):
+        """通知后端窗口可见性变化"""
+        try:
+            data = json.dumps({'visible': visible}).encode('utf-8')
+            req = urllib.request.Request(
+                'http://localhost:3000/api/launcher/state',
+                data=data,
+                method='POST',
+                headers={'Content-Type': 'application/json'}
+            )
+            urllib.request.urlopen(req, timeout=3)
+        except Exception:
+            pass
+
+    def show_window(self):
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        self._notify_visibility(True)
+
     def hide_window(self):
         self.hide()
+        self._notify_visibility(False)
 
     def open_settings(self):
         self._log_to_db('info', 'launcher', 'Menu: 设置互动频率 clicked')
