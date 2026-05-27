@@ -33,7 +33,7 @@ export async function callLLM(request: LLMRequest, logRequest = true, signal?: A
   }
 
   const logId = uuidv4();
-  const startTime = new Date();
+  const startTime = now();
 
   // 构建API路径
   let fullUrl: string;
@@ -128,7 +128,7 @@ export async function* callLLMStream(
   }
 
   const logId = uuidv4();
-  const startTime = new Date();
+  const startTime = now();
 
   // 构建API路径
   let fullUrl: string;
