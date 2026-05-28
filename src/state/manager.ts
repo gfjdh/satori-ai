@@ -2,7 +2,7 @@ import { stateDb } from '../db/database.js';
 import { AffinityState, EmotionState } from '../types/index.js';
 import type { StageDefinition } from '../character/loader.js';
 
-const DEFAULT_EMOTION_REGRESSION_RATE = 0.05;
+const DEFAULT_EMOTION_REGRESSION_RATE = 0.01;
 
 class StateManager {
   private characterId: string;

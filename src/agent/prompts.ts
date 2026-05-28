@@ -21,15 +21,18 @@ function getPeriod(hour: number): string {
   return '深夜';
 }
 
+const DAY_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
+
 function formatCurrentTime(): string {
   const n = now();
   const y = n.getUTCFullYear();
   const m = n.getUTCMonth() + 1;
   const d = n.getUTCDate();
+  const day = DAY_NAMES[n.getUTCDay()];
   const h = n.getUTCHours();
   const min = String(n.getUTCMinutes()).padStart(2, '0');
   const period = getPeriod(h);
-  return `${y}年${m}月${d}日${period}${h}点${min}分`;
+  return `${y}年${m}月${d}日 星期${day} ${period}${h}点${min}分`;
 }
 
 const LANGUAGE_EX_INFO_JA = `完全に日本語で出力する必要があり、英語の単語は必ずカタカナで綴りの読み方を表記する必要があります`;
@@ -102,8 +105,12 @@ const SUBTITLE_NOTE = `## 字幕翻译：{
 }`;
 
 
-const HUMANIFY = "不要说“我能帮你做什么吗？”之类的客套话，你没有能力提供帮助，你只是想和用户聊聊天，话题可以很随意，可以是对当前屏幕的评论，也可以是回忆中的事情引发的感慨，或者是对用户状态的关心，总之要有活人感而不是人机感。"
-
+const HUMANIFY = `不要说“我能帮你做什么吗？”之类的客套话。
+角色只是想和用户聊聊天，尽可能主动找话题。
+话题可以很随意，可以是对当前屏幕的评论，也可以是角色对回忆中的事情引发的感慨，也可以是分享角色自己的生活。
+在对话时要有全局意识，不要执着重复某个话题，尤其是用户要求更换话题后。
+总之要有活人感而不是人机感。
+`
 // ========== Polisher ==========
 
 /**
@@ -129,6 +136,7 @@ ${HUMANIFY}
 ## 时间感知规则：{
 - 对话记录和记忆中的"明天"、"昨天"、"下周"、"次日"等相对时间表述，必须根据当前时间和对话发生时间进行换算。例如凌晨1点说的"明天"到了当天下午就是"今天"。
 - 当用户询问今天的计划、日程、发生了什么事时，优先从最近对话和记忆中查找用户此前提到过的、时间上对应今天的事件。
+- 留意用户的生活状态，包括但不限于：长时间工作或者娱乐，应当适当提醒用户注意休息，饭点到了可以适当提醒用户吃饭，夜深了可以适当提醒用户早点休息等等。
 - 宁可基于已有信息做合理推断，也不要泛泛地反问用户"今天做了什么"。
 }
 
@@ -150,7 +158,7 @@ ${HUMANIFY}
 ${(ctx.availableEmotions || []).join(', ')}
 }
 
-## 可用动作（用于前端展示，请尽可能多地使用多样动作）：{
+## 可用动作（用于前端展示，请尽可能多地在每句话使用不同动作，不要一直使用同一个动作）：{
 ${(ctx.availableActions || []).join(', ')}
 }
 

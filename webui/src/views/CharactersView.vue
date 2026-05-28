@@ -26,7 +26,7 @@ const basicForm = ref({
   personality: '',
   speechLanguage: '',
   subtitleLanguage: '',
-  emotionRegressionRate: 0.05,
+  emotionRegressionRate: 0.01,
   characterInfo: '',
   dialogueRequirements: ''
 })
@@ -67,7 +67,7 @@ function fillForm(character: CharacterConfig) {
     personality: character.personality,
     speechLanguage: character.speechLanguage || '',
     subtitleLanguage: character.subtitleLanguage || '',
-    emotionRegressionRate: character.emotionRegressionRate ?? 0.05,
+    emotionRegressionRate: character.emotionRegressionRate ?? 0.01,
     characterInfo: character.characterInfo || '',
     dialogueRequirements: character.dialogueRequirements || ''
   }
@@ -150,7 +150,7 @@ function startCreate() {
     personality: '',
     speechLanguage: 'ja-JP',
     subtitleLanguage: 'zh-CN',
-    emotionRegressionRate: 0.05,
+    emotionRegressionRate: 0.01,
     characterInfo: '',
     dialogueRequirements: ''
   }
