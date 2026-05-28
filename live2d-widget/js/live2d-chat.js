@@ -8,7 +8,7 @@
 
     // 音频播放相关状态
     let audioQueue = [];
-    let currentPlayingIndex = -1;
+    let playedIndices = new Set();
     let audioElement = null;
     let isAudioPlaying = false;
 
@@ -78,7 +78,7 @@
                 audioElement = null;
             }
             isAudioPlaying = false;
-            currentPlayingIndex = -1;
+            playedIndices = new Set();
             audioQueue = [];
         }
         return currentMsgEl;
@@ -99,26 +99,36 @@
             audioElement = null;
         }
         const sortedAudio = audioQueue.sort((a, b) => a.sentenceIndex - b.sentenceIndex);
-        const next = sortedAudio.find(a => a.sentenceIndex > currentPlayingIndex);
+        const next = sortedAudio.find(a => !playedIndices.has(a.sentenceIndex));
         if (next) {
-            currentPlayingIndex = next.sentenceIndex;
+            const nextIndex = next.sentenceIndex;
             audioElement = new Audio(`data:audio/wav;base64,${next.base64}`);
             audioElement.onended = function() {
                 isAudioPlaying = false;
-                const finishedIndex = next.sentenceIndex;
-                const endPunct = sentenceEndPunctuation.get(finishedIndex);
+                playedIndices.add(nextIndex);
+                audioQueue = audioQueue.filter(a => a.sentenceIndex !== nextIndex);
+                const endPunct = sentenceEndPunctuation.get(nextIndex);
                 const delay = endPunct === 'period' ? 1000 : endPunct === 'comma' ? 500 : 0;
-                sentenceEndPunctuation.delete(finishedIndex);
-                currentPlayingIndex = finishedIndex;
+                sentenceEndPunctuation.delete(nextIndex);
                 setTimeout(playNextAudio, delay);
             };
             audioElement.onerror = function(e) {
                 console.error('Audio playback error:', e);
                 isAudioPlaying = false;
+                playedIndices.add(nextIndex);
+                audioQueue = audioQueue.filter(a => a.sentenceIndex !== nextIndex);
                 playNextAudio();
             };
             isAudioPlaying = true;
-            audioElement.play();
+            audioElement.play().catch(function(e) {
+                console.error('Audio play() rejected:', e);
+                isAudioPlaying = false;
+                if (audioElement) {
+                    audioElement = null;
+                }
+                // 不标记为已播放，不从队列移除 —— 等待 100ms 后重试同一条
+                setTimeout(playNextAudio, 100);
+            });
         }
     }
 
@@ -314,7 +324,7 @@
 
         // 重置播放状态
         audioQueue = [];
-        currentPlayingIndex = -1;
+        playedIndices = new Set();
         isAudioPlaying = false;
         if (audioElement) {
             audioElement.pause();

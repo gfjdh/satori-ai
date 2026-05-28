@@ -208,6 +208,7 @@ class Live2DWindow(QMainWindow):
         settings = self.web_view.settings()
         settings.setAttribute(QWebEngineSettings.WebAttribute.ShowScrollBars, False)
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.PlaybackRequiresUserGesture, False)
 
         self.web_view.load(QUrl(url))
 
