@@ -16,6 +16,17 @@ export interface StageDefinition {
   prompt: string;
 }
 
+export interface Live2DActionMapping {
+  group: string;
+  index: number;
+}
+
+export interface Live2DConfig {
+  modelOffsetX?: number;
+  modelOffsetY?: number;
+  actions?: Record<string, Live2DActionMapping>;
+}
+
 export interface CharacterConfig {
   id: string;
   name: string;
@@ -27,6 +38,7 @@ export interface CharacterConfig {
   emotionRegressionRate?: number;
   affinityStages?: Record<string, StageDefinition[]>;
   emotionStages?: Record<string, StageDefinition[]>;
+  live2d?: Live2DConfig;
 }
 
 const CHARACTER_CARDS_DIR = path.join(process.cwd(), 'character-cards');
@@ -67,6 +79,12 @@ export function loadCharacter(characterId: string): CharacterConfig | null {
     logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'agent', content: `Failed to load character ${characterId}: ${error}`, createdAt: now() });
     return null;
   }
+}
+
+export function getAvailableActions(characterId: string): string[] {
+  const config = loadCharacter(characterId);
+  if (!config?.live2d?.actions) return [];
+  return Object.keys(config.live2d.actions);
 }
 
 export function loadDefaultCharacter(): CharacterConfig {

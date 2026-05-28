@@ -4,7 +4,7 @@
 script/
 ├── 00_setup_all.bat      # 初始化所有环境（首次运行）
 ├── start.ps1             # PowerShell 菜单（灵活启动/停止）
-├── backend/              # Node.js 后端（端口 3000）
+├── backend/              # Node.js 后端（端口 3682）
 │   ├── 01_setup_env.bat
 │   └── 02_start_service.bat
 ├── webui/                # Vue3 前端（端口 5173）

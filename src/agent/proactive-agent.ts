@@ -12,7 +12,7 @@ import { callLLMStream, getLLMConfig } from '../api/llm.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Dialogue, SSEMessage, Memory } from '../types/index.js';
 import { getAvailableEmotions } from '../tts/client.js';
-import { loadDefaultCharacter, type CharacterConfig } from '../character/loader.js';
+import { loadDefaultCharacter, getAvailableActions, type CharacterConfig } from '../character/loader.js';
 import { userProfileManager } from '../user/profile.js';
 
 import { buildProactiveMessages, type ChatMessage } from './prompts.js';
@@ -41,6 +41,7 @@ export class ProactiveAgent {
     const speechLanguage = this.character.speechLanguage || 'ja-JP';
     const subtitleLanguage = this.character.subtitleLanguage || 'zh-CN';
     const availableEmotions = getAvailableEmotions(this.character.id);
+    const availableActions = getAvailableActions(this.character.id);
     const characterInfo = this.character.characterInfo || this.character.personality || '';
     const dialogueRequirements = this.character.dialogueRequirements || '';
 
@@ -66,6 +67,7 @@ export class ProactiveAgent {
       dialogueStats: getDialogueStats(),
       recentDialogues: combinedContext,
       availableEmotions,
+      availableActions,
       speechLanguage,
       subtitleLanguage,
       userProfile: userProfileManager.getProfileContext()

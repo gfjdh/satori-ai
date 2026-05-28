@@ -12,10 +12,11 @@ import { synthesizeStream } from '../tts/client.js';
 export function parseSegment(line: string): Segment | null {
   try {
     const obj = JSON.parse(line);
-    if (obj.emotion && obj.action && obj.voice !== undefined) {
+    if (obj.emotion && obj.voice !== undefined) {
+      const action = obj.action || '';
       return {
         emotion: obj.emotion,
-        action: obj.action,
+        action: action,
         voice: obj.voice,
         subtitle: obj.subtitle,
         needDeepThink: obj.needDeepThink === true

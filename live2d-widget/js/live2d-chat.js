@@ -208,6 +208,10 @@
                 const voiceData = JSON.parse(data);
                 const sentenceIndex = voiceData.sentenceIndex || 0;
                 sentenceEndPunctuation.set(sentenceIndex, getEndPunctuation(voiceData.text || ''));
+
+                if (voiceData.action && window.live2dActions) {
+                    window.live2dActions.execute(voiceData.action);
+                }
             } catch (e) { console.error('voice parse error:', e); }
         } else if (eventType === 'subtitle') {
             try {

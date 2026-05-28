@@ -7,7 +7,7 @@ param(
 
 $ErrorActionPreference = "Continue"
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$backendPort = 3000
+$backendPort = 3682
 $webuiPort = 5173
 $ttsPort = 5030
 $embeddingPort = 7860

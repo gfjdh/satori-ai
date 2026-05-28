@@ -20,7 +20,7 @@ import { SSEMessage } from './types/index.js';
 import cron from 'node-cron';
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3682;
 
 // 中间件
 app.use(express.json());
@@ -614,7 +614,7 @@ app.get('/api/character/live2d-config', (req: Request, res: Response) => {
     const live2dUrl = `/live2d`;
 
     // 读取模型偏移配置
-    const live2dConfig = (character as any).live2d || {};
+    const live2dConfig = character.live2d || {};
     const modelOffsetX = live2dConfig.modelOffsetX || 0;
     const modelOffsetY = live2dConfig.modelOffsetY || 0;
 
@@ -627,7 +627,8 @@ app.get('/api/character/live2d-config', (req: Request, res: Response) => {
       modelFile: modelFile,
       live2dDir: live2dDir,
       modelOffsetX: modelOffsetX,
-      modelOffsetY: modelOffsetY
+      modelOffsetY: modelOffsetY,
+      actions: live2dConfig.actions || {}
     });
   } catch (error) {
     res.status(500).json({ error: `获取Live2D配置失败: ${String(error)}` });

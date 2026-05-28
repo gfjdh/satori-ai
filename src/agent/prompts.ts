@@ -65,6 +65,7 @@ export interface PromptContext {
   dialogueStats?: string;
   recentDialogues?: string;
   availableEmotions?: string[];
+  availableActions?: string[];
   skillList?: string;
   recentSkillsContext?: string;
   speechLanguage?: string;
@@ -83,6 +84,7 @@ export interface ProactivePromptContext {
   dialogueStats?: string;
   recentDialogues?: string;
   availableEmotions?: string[];
+  availableActions?: string[];
   speechLanguage?: string;
   subtitleLanguage?: string;
   userProfile?: string;
@@ -99,9 +101,6 @@ const SUBTITLE_NOTE = `## 字幕翻译：{
 目前 speechLanguage 与 subtitleLanguage 不同，每句话需要同时提供 subtitle 字段作为翻译。
 }`;
 
-const AVAILABLE_ACTIONS = `## 可用动作：{
-wave, nod, shake_head, happy, sad, angry, surprise, think, idle
-}`;
 
 const HUMANIFY = "不要说“我能帮你做什么吗？”之类的客套话，你没有能力提供帮助，你只是想和用户聊聊天，话题可以很随意，可以是对当前屏幕的评论，也可以是回忆中的事情引发的感慨，或者是对用户状态的关心，总之要有活人感而不是人机感。"
 
@@ -135,7 +134,7 @@ ${HUMANIFY}
 
 ## needDeepThink 规则：{
 - 若用户提到未知概念或者涉及未召回的记忆，或者需要执行复杂任务时，**仅在首个 JSON 对象**中添加一个字段 needDeepThink=true
-- needDeepThink=true 时：先把目前有的信息说清楚，并且体现你正在处理问题的状态，本轮对话只需要说到一半，后续会补充步骤。
+- needDeepThink=true 时：先尽可能做一个初步的回答，并且体现你正在处理问题的状态，本轮对话只需要说到一半，后续会补充步骤。
 - 若当前仅简单对话/互动，则不需要深度分析，直接回答即可。（needDeepThink字段缺省即可，不需要添加 needDeepThink=false）
 - needDeepThink 只在第一个 JSON 对象中输出，后续对象中禁止包含此字段
 }
@@ -144,7 +143,9 @@ ${HUMANIFY}
 ${(ctx.availableEmotions || []).join(', ')}
 }
 
-${AVAILABLE_ACTIONS}
+## 可用动作：{
+${(ctx.availableActions || []).join(', ')}
+}
 
 ${needsSubtitle ? SUBTITLE_NOTE : ''}
 `;
@@ -239,7 +240,9 @@ ${HUMANIFY}
 ${(ctx.availableEmotions || []).join(', ')}
 }
 
-${AVAILABLE_ACTIONS}
+## 可用动作：{
+${(ctx.availableActions || []).join(', ')}
+}
 
 ${needsSubtitle ? SUBTITLE_NOTE : ''}
 `;

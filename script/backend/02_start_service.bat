@@ -1,6 +1,6 @@
 @echo off
 echo ========================================
-echo Backend Service - Starting (port 3000)
+echo Backend Service - Starting (port 3682)
 echo ========================================
 echo.
 
@@ -11,7 +11,7 @@ cd /d "%PROJECT_ROOT%"
 setlocal enabledelayedexpansion
 
 echo Starting backend service...
-echo - Backend: http://localhost:3000
+echo - Backend: http://localhost:3682
 echo.
 
 start "Backend Service" cmd /k "npm run dev"

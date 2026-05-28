@@ -131,7 +131,7 @@ export function createAnalysisSession(
         const skillName = skillCallMatch[1];
         searchCount++;
 
-        const forceStop = searchCount >= 3
+        const forceStop = searchCount >= 6
           ? '\n\n[系统提示] 已执行多次搜索。禁止再次调用技能，请输出 DONE。'
           : '\n\n请判断是否还需要调用技能。如果不需要，输出 DONE。';
 

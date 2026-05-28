@@ -50,7 +50,7 @@ async function initializeModel() {
         // 3. 加载Live2D模型（使用完整URL）
         const modelUrl = live2dConfig.modelUrl || live2dConfig.modelPath;
         console.log('模型URL:', modelUrl);
-        const model = await PIXI.live2d.Live2DModel.from(modelUrl);
+        const model = await PIXI.live2d.Live2DModel.from(modelUrl, { motionPreload: "ALL" });
         app.stage.addChild(model);
 
         // 4. 初始化交互控制器

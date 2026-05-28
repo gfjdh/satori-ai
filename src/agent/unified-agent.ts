@@ -19,7 +19,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Dialogue, SSEMessage } from '../types/index.js';
 import { skillEngine } from '../skills/engine.js';
 import { getAvailableEmotions } from '../tts/client.js';
-import { loadDefaultCharacter, type CharacterConfig } from '../character/loader.js';
+import { loadDefaultCharacter, getAvailableActions, type CharacterConfig } from '../character/loader.js';
 import { userProfileManager } from '../user/profile.js';
 
 import { buildPolisherMessages, buildPolisherResultUser, buildAnalyzerMessages, buildAnalyzerContinuationUser, type ChatMessage } from './prompts.js';
@@ -54,6 +54,7 @@ class UnifiedAgent {
     const speechLanguage = this.character.speechLanguage || 'ja-JP';
     const subtitleLanguage = this.character.subtitleLanguage || 'zh-CN';
     const availableEmotions = getAvailableEmotions(this.character.id);
+    const availableActions = getAvailableActions(this.character.id);
     const characterInfo = this.character.characterInfo || this.character.personality || '';
     const dialogueRequirements = this.character.dialogueRequirements || '';
 
@@ -100,6 +101,7 @@ class UnifiedAgent {
       dialogueStats: getDialogueStats(),
       recentDialogues: combinedContext,
       availableEmotions,
+      availableActions,
       speechLanguage,
       subtitleLanguage,
       userProfile: userProfileManager.getProfileContext()

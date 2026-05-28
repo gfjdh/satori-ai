@@ -348,6 +348,18 @@ class Live2DWindow(QMainWindow):
 
         menu.addAction('打开管理页面', self.open_admin_page)
         menu.addAction('主动互动', self.handle_interaction)
+
+        # 展示动作子菜单
+        actions = self._fetch_actions()
+        if actions:
+            action_menu = QMenu('展示动作', menu)
+            for name in sorted(actions.keys()):
+                act = action_menu.addAction(name)
+                act.triggered.connect(lambda checked=False, n=name: self._execute_action(n))
+            menu.addMenu(action_menu)
+        else:
+            menu.addAction('展示动作 (不可用)', None).setEnabled(False)
+
         menu.addAction('变装', self.handle_change_costume)
         menu.addAction('隐藏', self.hide_window)
         menu.addAction('设置互动频率', self.open_settings)
@@ -370,7 +382,7 @@ class Live2DWindow(QMainWindow):
         try:
             data = json.dumps({'level': level, 'category': category, 'content': content}).encode('utf-8')
             req = urllib.request.Request(
-                'http://localhost:3000/api/log',
+                'http://localhost:3682/api/log',
                 data=data,
                 method='POST',
                 headers={'Content-Type': 'application/json'}
@@ -383,7 +395,7 @@ class Live2DWindow(QMainWindow):
         self._log_to_db('info', 'launcher', 'Menu: 互动 clicked')
         try:
             req = urllib.request.Request(
-                'http://localhost:3000/api/proactive/trigger',
+                'http://localhost:3682/api/proactive/trigger',
                 method='POST',
                 headers={'Content-Type': 'application/json'}
             )
@@ -431,7 +443,7 @@ class Live2DWindow(QMainWindow):
         try:
             data = json.dumps({'visible': visible}).encode('utf-8')
             req = urllib.request.Request(
-                'http://localhost:3000/api/launcher/state',
+                'http://localhost:3682/api/launcher/state',
                 data=data,
                 method='POST',
                 headers={'Content-Type': 'application/json'}
@@ -450,9 +462,37 @@ class Live2DWindow(QMainWindow):
         self.hide()
         self._notify_visibility(False)
 
+    def _fetch_actions(self):
+        """从后端 API 获取可用动作列表（带缓存）"""
+        if hasattr(self, '_actions_cache'):
+            return self._actions_cache
+        try:
+            req = urllib.request.Request(
+                'http://localhost:3682/api/character/live2d-config',
+                method='GET'
+            )
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                actions = data.get('actions', {})
+                self._actions_cache = actions
+                return actions
+        except Exception:
+            return {}
+
+    def _execute_action(self, action_name):
+        """通过 JS 执行指定动作"""
+        self._log_to_db('info', 'launcher', f'Menu: 展示动作/{action_name} clicked')
+        self.web_view.page().runJavaScript(
+            f'window.live2dActions && window.live2dActions.execute("{action_name}")'
+        )
+
     def open_settings(self):
         self._log_to_db('info', 'launcher', 'Menu: 设置互动频率 clicked')
         self.web_view.page().runJavaScript('window.live2dSettings && window.live2dSettings.show()')
+
+    def show_actions_panel(self):
+        self._log_to_db('info', 'launcher', 'Menu: 展示动作 clicked')
+        self.web_view.page().runJavaScript('window.live2dActions && window.live2dActions.show()')
 
     def close_app(self):
         pos = self.pos()
@@ -465,7 +505,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName('Satori Live2D')
 
-    LIVE2D_URL = os.environ.get('LIVE2D_URL', 'http://localhost:3000/live2d')
+    LIVE2D_URL = os.environ.get('LIVE2D_URL', 'http://localhost:3682/live2d')
 
     window = Live2DWindow(LIVE2D_URL)
     window.show()

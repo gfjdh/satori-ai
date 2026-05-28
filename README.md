@@ -163,7 +163,7 @@ python app.py
 ```
 
 启动后访问：
-- 后端API: http://localhost:3000
+- 后端API: http://localhost:3682
 - WebUI: http://localhost:5173
 
 ### 开发模式
