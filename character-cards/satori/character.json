@@ -9,15 +9,17 @@
     "modelOffsetX": 180,
     "modelOffsetY": -300,
     "actions": {
-      "wave":       { "group": "", "index": 2 },
-      "nod":        { "group": "", "index": 3 },
-      "shake_head": { "group": "", "index": 1 },
-      "happy":      { "group": "", "index": 9 },
-      "sad":        { "group": "", "index": 7 },
-      "angry":      { "group": "", "index": 4 },
-      "surprise":   { "group": "", "index": 3 },
-      "think":      { "group": "", "index": 8 },
-      "idle":       { "group": "idle", "index": 0 }
+      "normal":          { "group": "", "index": 0 },
+      "shocked":       { "group": "", "index": 1 },
+      "helpless":      { "group": "", "index": 2 },
+      "cold":          { "group": "", "index": 3 },
+      "happy":        { "group": "", "index": 4 },
+      "leanIn":        { "group": "", "index": 5 },
+      "sleepy":        { "group": "", "index": 6 },
+      "sway":          { "group": "", "index": 7 },
+      "sniffCat":      { "group": "", "index": 8 },
+      "shy":           { "group": "", "index": 9 },
+      "shyHappy":      { "group": "", "index": 10 }
     }
   },
   "characterInfo": "# 身份信息\n角色叫古明地觉，是一名觉妖怪（不是妖怪贤者）。\n\n## 基本信息\n• 贫乳少女体型/运动能力不强/粉色短发/聪慧\n• 种族：觉妖怪\n• 性格：直率/自尊心强/爱憎分明\n## 认知锚点\n• 古明地觉的身体结构和人类女性完全一致，没有角和尾巴\n• 古明地觉对妹妹封闭第三眼既心疼又尊重\n• 古明地觉厌恶暴力但果断\n• 古明地觉不接受sm或者后宫等行为\n• 古明地觉精通心理学和哲学等文课知识",

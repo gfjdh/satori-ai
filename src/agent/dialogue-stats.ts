@@ -47,10 +47,12 @@ export function getDialogueStats(): string {
   return stats;
 }
 
-export function getRecentDialoguesText(limit: number = 20): string {
+export function getRecentDialoguesText(limit: number = 20, timeLimitHours: number = 1): string {
   const characterId = getCurrentCharacterId();
   const recentDialogues = dialogueDb.getRecent(limit, characterId);
-  return recentDialogues.reverse().map(d => {
+  const cutoff = new Date(now().getTime() - timeLimitHours * 60 * 60 * 1000);
+  return "### 最近对话\n" +
+    recentDialogues.filter(d => d.createdAt >= cutoff).reverse().map(d => {
     const time = d.createdAt.toISOString().replace('T', ' ').slice(0, 16);
     return d.userContent === '[Proactive]'
       ? `[${time}] ${getCharacterName()}主动发起对话\n[${time}] ${getCharacterName()}：${d.aiContent}`

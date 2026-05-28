@@ -2,7 +2,7 @@ import { memoryDb, logDb, dialogueDb, now } from '../db/database.js';
 import { stateManager } from '../state/manager.js';
 import { callLLM, getLLMConfig } from '../api/llm.js';
 import { v4 as uuidv4 } from 'uuid';
-import { Memory } from '../types/index.js';
+import { Memory, Dialogue } from '../types/index.js';
 import { generateAndStoreEmbedding } from '../retrieval/vector-search.js';
 import { getCharacterName } from '../character/loader.js';
 import { getCurrentCharacterId } from '../character/knowledge.js';
@@ -25,7 +25,8 @@ const GRANULARITY_CONFIGS: GranularityConfig[] = [
   { name: 'year', childGranularity: 'month', summaryThresholdMs: 365 * 24 * 60 * 60 * 1000 },
 ];
 
-const ARCHIVE_PROMPT = `请以JSON格式返回，不要包含其他任何内容：
+const ARCHIVE_PROMPT = `总结要求：综合考虑此段记忆未来被调用的场景和目的，无状态地去存储信息，例如把“明天”替换成具体日期，把“最近”替换成具体时间范围等。
+请以JSON格式返回，不要包含其他任何内容：
 {
   "topic": "话题名称（简短，几个字）",
   "summary": "对话总结（要简洁而全面，尽可能高密度地保留信息，最多200字左右）",
@@ -78,61 +79,74 @@ ${dialogueText}
     }
   }
 
-  // 封存当前话题：拉取原始对话 → LLM总结 → 存入topic记忆
-  async archiveCurrentTopic(): Promise<void> {
-    if (!currentTopicStartTime) return;
+  // 将对话列表格式化为文本，带时间信息
+  private buildDialogueText(dialogues: Dialogue[]): string {
+    return dialogues.map(d => {
+      const time = this.formatTimestamp(d.createdAt);
+      return d.userContent === '[Proactive]'
+        ? `[${time}] ${getCharacterName()}：${d.aiContent}`
+        : `[${time}] 用户：${d.userContent}\n[${time}] ${getCharacterName()}：${d.aiContent}`;
+    }).join('\n---\n');
+  }
 
-    const nowTime = now();
-    const dialogues = dialogueDb.getCharacterDialogueSince(currentTopicStartTime, getCurrentCharacterId());
-    if (dialogues.length === 0) return;
-
-    const dialogueText = dialogues.map(d =>
-      d.userContent === '[Proactive]' ? `${getCharacterName()}：${d.aiContent}` : `用户：${d.userContent}\n${getCharacterName()}：${d.aiContent}`
-    ).join('\n---\n');
-
-    const config = getLLMConfig();
-    const summaryPrompt = `请总结以下一段对话，提取核心话题和关键内容：
+  // 构建归档总结 prompt
+  private buildArchivePrompt(dialogueText: string): string {
+    return `请总结以下一段对话，提取核心话题和关键内容：
 
 ${dialogueText}
 
 ${ARCHIVE_PROMPT}`;
+  }
+
+  // 调用LLM生成总结并存入topic记忆
+  private async summarizeAndStoreTopic(dialogues: Dialogue[], logAction: string): Promise<void> {
+    const dialogueText = this.buildDialogueText(dialogues);
+    const summaryPrompt = this.buildArchivePrompt(dialogueText);
+
+    const config = getLLMConfig();
+    const response = await callLLM({
+      model: config.model,
+      messages: [{ role: 'user', content: summaryPrompt }],
+      temperature: 0.3
+    });
+
+    const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return;
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    const firstDialogue = dialogues[0];
+    const lastDialogue = dialogues[dialogues.length - 1];
+    const memoryId = uuidv4();
+
+    const memory = {
+      id: memoryId,
+      granularity: 'topic' as const,
+      content: parsed.summary,
+      userState: parsed.user_state || null,
+      periodStart: firstDialogue.createdAt,
+      periodEnd: lastDialogue.createdAt,
+      createdAt: now()
+    };
+
+    memoryDb.insert(memory);
+
+    generateAndStoreEmbedding('memory', memoryId, parsed.summary).catch(err => {
+      logDb.insert({ id: uuidv4(), level: 'warn', category: 'embedding', content: `Failed to generate embedding for memory ${memoryId}: ${err}`, createdAt: now() });
+    });
+
+    logDb.insert({ id: uuidv4(), level: 'info', category: 'agent', content: `${logAction} "${parsed.topic}" with ${dialogues.length} dialogues`, createdAt: now() });
+  }
+
+  // 封存当前话题：拉取原始对话 → LLM总结 → 存入topic记忆
+  async archiveCurrentTopic(): Promise<void> {
+    if (!currentTopicStartTime) return;
+
+    const dialogues = dialogueDb.getCharacterDialogueSince(currentTopicStartTime, getCurrentCharacterId());
+    if (dialogues.length === 0) return;
 
     try {
-      const response = await callLLM({
-        model: config.model,
-        messages: [{ role: 'user', content: summaryPrompt }],
-        temperature: 0.3
-      });
-
-      const jsonMatch = response.content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return;
-
-      const parsed = JSON.parse(jsonMatch[0]);
-      const firstDialogue = dialogues[0];
-      const lastDialogue = dialogues[dialogues.length - 1];
-      const memoryId = uuidv4();
-
-      const memory = {
-        id: memoryId,
-        granularity: 'topic' as const,
-        content: parsed.summary,
-        userState: parsed.user_state || null,
-        periodStart: firstDialogue.createdAt,
-        periodEnd: lastDialogue.createdAt,
-        createdAt: nowTime
-      };
-
-      memoryDb.insert(memory);
-
-      // 异步生成 embedding
-      generateAndStoreEmbedding('memory', memoryId, parsed.summary).catch(err => {
-        logDb.insert({ id: uuidv4(), level: 'warn', category: 'embedding', content: `Failed to generate embedding for memory ${memoryId}: ${err}`, createdAt: now() });
-      });
-
-      logDb.insert({ id: uuidv4(), level: 'info', category: 'agent', content: `Archived topic "${parsed.topic}" with ${dialogues.length} dialogues`, createdAt: nowTime });
-
-      // 重置追踪状态，新话题从此刻开始
-      currentTopicStartTime = nowTime;
+      await this.summarizeAndStoreTopic(dialogues, 'Archived topic');
+      currentTopicStartTime = now();
     } catch (error) {
       logDb.insert({ id: uuidv4(), level: 'error', category: 'agent', content: `Failed to archive topic: ${error}`, createdAt: now() });
     }
@@ -165,6 +179,31 @@ ${ARCHIVE_PROMPT}`;
     for (const config of GRANULARITY_CONFIGS) {
       // 只处理day/week/month/year，不处理topic（topic是被汇总的下级）
       if (config.name === 'topic' || !config.childGranularity) continue;
+
+      // Day 使用凌晨4点日界线逻辑，避免"两个半天拼成一天"的问题
+      if (config.name === 'day') {
+        const today4AM = new Date(nowTime);
+        today4AM.setUTCHours(4, 0, 0, 0);
+        if (nowTime < today4AM) continue;
+
+        const lastSummary = this.getLatestSummaryTime('day');
+        if (lastSummary && lastSummary >= today4AM) continue;
+
+        let summaryStart: Date;
+        if (lastSummary) {
+          summaryStart = lastSummary;
+        } else {
+          const earliestChild = this.getEarliestMemoryTime(config.childGranularity);
+          if (!earliestChild) continue;
+          summaryStart = earliestChild;
+        }
+
+        const result = await this.performSummaryFor('day', 'topic', summaryStart, today4AM);
+        if (result) {
+          await userProfileManager.summarizeFromMemories(result.summaryContent, result.relevantMemories);
+        }
+        continue;
+      }
 
       // 获取上一次总结的时间起点
       const lastSummary = this.getLatestSummaryTime(config.name);
@@ -229,8 +268,8 @@ ${ARCHIVE_PROMPT}`;
     const summaryPrompt = `请对以下一段时期的记忆进行汇总总结：
 
 ${memoryText}
-
-要求在保留主要内容的同时尽可能简洁，提取核心内容，以最高效的方式存储信息。500字以内。
+总结要求：综合考虑此段记忆未来被调用的场景和目的，无状态地去存储信息，例如把“明天”替换成具体日期，把“最近”替换成具体时间范围等。
+在保留主要内容的同时尽可能简洁，提取核心内容，以最高效的方式存储信息。500字以内。
 请以JSON格式返回：
 {"summary": "这段时期对话内容的整体总结", "user_state": "根据对话分析这段时间用户的状态，要考虑包括但不限于时间、作息、行为、目标、变化趋势等因素，尽可能完整反映这段时间用户的日程和状态。100字内。"}`;
 
@@ -276,18 +315,20 @@ ${memoryText}
     return null;
   }
 
-  // 格式化时间范围（DB 时间已迁移到 UTC+8，直接用 getUTC*() 取墙面时钟）
+  // 格式化单个时间戳（DB 时间已迁移到 UTC+8，直接用 getUTC*() 取墙面时钟）
+  private formatTimestamp(d: Date): string {
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    const h = String(d.getUTCHours()).padStart(2, '0');
+    const min = String(d.getUTCMinutes()).padStart(2, '0');
+    return `${y}/${m}/${day} ${h}:${min}`;
+  }
+
+  // 格式化时间范围
   private formatTimeRange(start: Date, end: Date | null): string {
-    const fmt = (d: Date): string => {
-      const y = d.getUTCFullYear();
-      const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-      const day = String(d.getUTCDate()).padStart(2, '0');
-      const h = String(d.getUTCHours()).padStart(2, '0');
-      const min = String(d.getUTCMinutes()).padStart(2, '0');
-      return `${y}/${m}/${day} ${h}:${min}`;
-    };
-    const endTime = end ? fmt(end) : '现在';
-    return `${fmt(start)} - ${endTime}`;
+    const endTime = end ? this.formatTimestamp(end) : '现在';
+    return `${this.formatTimestamp(start)} - ${endTime}`;
   }
 
   // 获取某粒度中在指定时间之后创建的记忆
@@ -315,40 +356,40 @@ ${memoryText}
     const dayCutoff = latestDay.length > 0 ? latestDay[0].periodEnd : new Date(0);
     const recentTopics = this.getMemoriesSince('topic', dayCutoff);
     if (recentTopics.length > 0) {
-      parts.push('## 近期话题\n' + recentTopics.map(fmt).join('\n'));
+      parts.push('### 近期话题\n' + recentTopics.map(fmt).join('\n'));
     }
 
     // 自上次周总结以来，所有 day 粒度记忆
     const weekCutoff = latestWeek.length > 0 ? latestWeek[0].periodEnd : new Date(0);
     const recentDays = this.getMemoriesSince('day', weekCutoff);
     if (recentDays.length > 0) {
-      parts.push('## 近日总结\n' + recentDays.map(fmt).join('\n'));
+      parts.push('### 近日总结\n' + recentDays.map(fmt).join('\n'));
     }
 
     // 自上次月总结以来，所有 week 粒度记忆
     const monthCutoff = latestMonth.length > 0 ? latestMonth[0].periodEnd : new Date(0);
     const recentWeeks = this.getMemoriesSince('week', monthCutoff);
     if (recentWeeks.length > 0) {
-      parts.push('## 近周总结\n' + recentWeeks.map(fmt).join('\n'));
+      parts.push('### 近周总结\n' + recentWeeks.map(fmt).join('\n'));
     }
 
     // 自上次季总结以来，所有 month 粒度记忆
     const seasonCutoff = latestSeason.length > 0 ? latestSeason[0].periodEnd : new Date(0);
     const recentMonths = this.getMemoriesSince('month', seasonCutoff);
     if (recentMonths.length > 0) {
-      parts.push('## 近月总结\n' + recentMonths.map(fmt).join('\n'));
+      parts.push('### 近月总结\n' + recentMonths.map(fmt).join('\n'));
     }
 
     // 自上次年总结以来，所有 season 粒度记忆
     const yearCutoff = latestYear.length > 0 ? latestYear[0].periodEnd : new Date(0);
     const recentSeasons = this.getMemoriesSince('season', yearCutoff);
     if (recentSeasons.length > 0) {
-      parts.push('## 近季总结\n' + recentSeasons.map(fmt).join('\n'));
+      parts.push('### 近季总结\n' + recentSeasons.map(fmt).join('\n'));
     }
 
     // 最近一条年总结
     if (latestYear.length > 0) {
-      parts.push('## 年度总结\n' + latestYear.map(fmt).join('\n'));
+      parts.push('### 年度总结\n' + latestYear.map(fmt).join('\n'));
     }
 
     return parts.join('\n\n');
@@ -383,74 +424,20 @@ ${memoryText}
 
   // 启动时恢复未归档的对话并汇总为topic
   async recoverAndSummarizeUnarchived(): Promise<void> {
-    // 1. 获取最后一个topic记忆的periodEnd作为分界线
     const lastTopicMemories = memoryDb.getByGranularity('topic', 1);
     const cutoffDate = lastTopicMemories.length > 0
       ? lastTopicMemories[0].periodEnd
-      : new Date(0); // 1970-01-01 表示全量汇总
+      : new Date(0);
 
-    // 2. 查询分界线后的所有对话
     const unarchivedDialogues = dialogueDb.getAllDialogueSince(cutoffDate);
-    if (unarchivedDialogues.length === 0) {
-      return;
+    if (unarchivedDialogues.length === 0) return;
+
+    try {
+      await this.summarizeAndStoreTopic(unarchivedDialogues, 'Recovered and summarized');
+      currentTopicStartTime = now();
+    } catch (error) {
+      logDb.insert({ id: uuidv4(), level: 'error', category: 'agent', content: `Failed to recover unarchived dialogues: ${error}`, createdAt: now() });
     }
-
-    // 3. 构建对话摘要prompt
-    const dialogueText = unarchivedDialogues
-      .map(d => d.userContent === '[Proactive]' ? `${getCharacterName()}：${d.aiContent}` : `用户：${d.userContent}\n${getCharacterName()}：${d.aiContent}`)
-      .join('\n---\n');
-
-    const summaryPrompt = `请总结以下一段时期的对话，提取核心话题和关键内容：
-
-${dialogueText}
-
-${ARCHIVE_PROMPT}
-`;
-
-    // 4. 调用LLM生成总结
-    const config = getLLMConfig();
-    const response = await callLLM({
-      model: config.model,
-      messages: [{ role: 'user', content: summaryPrompt }],
-      temperature: 0.3
-    });
-
-    // 5. 解析JSON响应
-    const jsonMatch = response.content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      logDb.insert({ id: uuidv4(), level: 'error', category: 'agent', content: `recoverAndSummarizeUnarchived: failed to parse LLM response`, createdAt: now() });
-      return;
-    }
-
-    const parsed = JSON.parse(jsonMatch[0]);
-
-    // 6. 存入memoryDb，granularity='topic'
-    const firstDialogue = unarchivedDialogues[0];
-    const lastDialogue = unarchivedDialogues[unarchivedDialogues.length - 1];
-
-    const memoryId = uuidv4();
-
-    const memory = {
-      id: memoryId,
-      granularity: 'topic' as const,
-      content: parsed.summary,
-      userState: parsed.user_state || null,
-      periodStart: firstDialogue.createdAt,
-      periodEnd: lastDialogue.createdAt,
-      createdAt: now()
-    };
-
-    memoryDb.insert(memory);
-
-    // 异步生成 embedding，不阻塞主进程
-    generateAndStoreEmbedding('memory', memoryId, parsed.summary).catch(err => {
-      logDb.insert({ id: uuidv4(), level: 'warn', category: 'embedding', content: `Failed to generate embedding for recovered memory ${memoryId}: ${err}`, createdAt: now() });
-    });
-
-    logDb.insert({ id: uuidv4(), level: 'info', category: 'agent', content: `Recovered and summarized ${unarchivedDialogues.length} unarchived dialogues into topic: ${parsed.topic}`, createdAt: now() });
-
-    // 初始化当前话题追踪，新对话从此刻开始
-    currentTopicStartTime = now();
   }
 }
 

@@ -363,7 +363,6 @@ class Live2DWindow(QMainWindow):
         menu.addAction('变装', self.handle_change_costume)
         menu.addAction('隐藏', self.hide_window)
         menu.addAction('设置互动频率', self.open_settings)
-        menu.addAction('退出', self.close_app)
 
         menu.exec(global_pos)
 
@@ -428,7 +427,7 @@ class Live2DWindow(QMainWindow):
         tray_menu.addAction('显示桌宠', self.show_window)
         tray_menu.addAction('打开管理页面', self.open_admin_page)
         tray_menu.addSeparator()
-        tray_menu.addAction('退出', self.close_app)
+        tray_menu.addAction('关闭live2d', self.close_app)
 
         self._tray_icon.setContextMenu(tray_menu)
         self._tray_icon.activated.connect(self._on_tray_activated)

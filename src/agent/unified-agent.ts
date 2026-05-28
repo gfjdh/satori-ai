@@ -62,8 +62,12 @@ class UnifiedAgent {
     let sentenceIndex = 0;
 
     // ========== 阶段1：预检索 ==========
+    const recentDialoguesForRetrieval = getRecentDialoguesText(5);
+    const retrievalQuery = recentDialoguesForRetrieval
+      ? recentDialoguesForRetrieval + '\n' + userInput
+      : userInput;
     const retrievalContext = await skillEngine.executeSkill('search', {
-      query: userInput,
+      query: retrievalQuery,
       limit: 10
     });
 

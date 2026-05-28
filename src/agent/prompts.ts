@@ -126,6 +126,12 @@ ${ctx.dialogueRequirements || ''}
 ${HUMANIFY}
 }
 
+## 时间感知规则：{
+- 对话记录和记忆中的"明天"、"昨天"、"下周"、"次日"等相对时间表述，必须根据当前时间和对话发生时间进行换算。例如凌晨1点说的"明天"到了当天下午就是"今天"。
+- 当用户询问今天的计划、日程、发生了什么事时，优先从最近对话和记忆中查找用户此前提到过的、时间上对应今天的事件。
+- 宁可基于已有信息做合理推断，也不要泛泛地反问用户"今天做了什么"。
+}
+
 ## 输出格式：{
 将角色回复分成若干句，每句约15个字符。使用${languageCodeToName(ctx.speechLanguage)}输出。每行一个 JSON 对象：
 {"emotion":"情感标签","action":"动作类型","voice":"${languageCodeToName(ctx.speechLanguage)}，约15字",${subtitleField},"needDeepThink":true/缺省}
@@ -133,17 +139,18 @@ ${HUMANIFY}
 }
 
 ## needDeepThink 规则：{
-- 若用户提到未知概念或者涉及未召回的记忆，或者需要执行复杂任务时，**仅在首个 JSON 对象**中添加一个字段 needDeepThink=true
+- 不要轻易执行深度分析，那样很浪费token。
+- 只有用户提到未知概念或者涉及未召回的记忆，或者需要执行复杂任务时，**仅在首个 JSON 对象**中添加一个字段 needDeepThink=true
 - needDeepThink=true 时：先尽可能做一个初步的回答，并且体现你正在处理问题的状态，本轮对话只需要说到一半，后续会补充步骤。
 - 若当前仅简单对话/互动，则不需要深度分析，直接回答即可。（needDeepThink字段缺省即可，不需要添加 needDeepThink=false）
 - needDeepThink 只在第一个 JSON 对象中输出，后续对象中禁止包含此字段
 }
 
-## 可用情感标签：{
+## 可用情感标签（用于合成语音，所以要匹配每一句话的感情）：{
 ${(ctx.availableEmotions || []).join(', ')}
 }
 
-## 可用动作：{
+## 可用动作（用于前端展示，请尽可能多地使用多样动作）：{
 ${(ctx.availableActions || []).join(', ')}
 }
 
@@ -158,20 +165,20 @@ ${ctx.userProfile ? '## 用户画像：{\n' + ctx.userProfile + '\n}\n' : ''}
 对话统计：${ctx.dialogueStats || ''}
 }
 
-## 预检索结果（仅在用户提到未知概念或涉及未召回记忆时且信息不足时启用深度分析）：{
+## 记忆检索结果：{
 ${ctx.retrievalResults || '（无）'}
-${hasRetrieval ? '\n**以上是预检索信息，请先基于这些信息回答，如果信息已经足够使用则不需要深度分析。**' : ''}
+${hasRetrieval ? '\n**请仔细阅读以上记忆，优先从中匹配用户问题的相关信息。如果信息足够则直接回答，不需要深度分析。**' : ''}
 }
 
 ${ctx.visualContext ? "## 当前屏幕内容（仅在识别的信息完全无法回答用户问题时启用深度分析）：{\n" + ctx.visualContext + "\n}" : ''}
 
-## 最近对话：{
+## 最近对话（注意：对话中的"明天""昨天"等时间词是相对于对话发生时刻的，需对照当前时间换算）：{
 ${ctx.recentDialogues || '（无）'}
 }
 
 ## 当前时间：${formatCurrentTime()}
 
-## 用户消息：{
+## 用户消息（这是你需要回答的问题，不要重复问题）：{
 ${ctx.userInput}
 }
 
@@ -188,12 +195,26 @@ ${needsSubtitle ? `"注意：输出的JSON中 voice 字段必须使用 ${languag
  * 构建追加到 polisher 消息列表的 user 消息（analyzer 返回结果后）。
  */
 export function buildPolisherResultUser(rawFindings: string): ChatMessage {
+  const hasFindings = rawFindings && rawFindings.trim().length > 0;
+
+  if (!hasFindings) {
+    return {
+      role: 'user',
+      content: `## 当前时间：${formatCurrentTime()}
+
+深度分析已完成，但未找到任何新的相关信息。
+
+**请直接结束本轮对话，自然地收尾即可。绝对禁止重复之前已经输出的 JSON 行！**
+输出JSON的格式与最初要求保持统一，尤其注意各字段的语种。`
+    };
+  }
+
   return {
     role: 'user',
     content: `## 当前时间：${formatCurrentTime()}
 
 ## 分析结果（原始检索数据，请自行提炼关键信息并转化为角色语言）：{
-${rawFindings || '（无）'}
+${rawFindings}
 }
 
 请基于以上信息接续之前的输出继续回复（注意：要保持语义连贯成一段话，不要有重复或矛盾）。

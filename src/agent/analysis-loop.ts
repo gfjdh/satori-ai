@@ -36,7 +36,7 @@ export function createAnalysisSession(
   const config = getLLMConfig();
   const messages = [...initialMessages];
   let iteration = 0;
-  const maxIterations = 6;
+  const maxIterations = 4;
   let searchCount = 0;
   let allRawFindings = '';
 
@@ -131,8 +131,8 @@ export function createAnalysisSession(
         const skillName = skillCallMatch[1];
         searchCount++;
 
-        const forceStop = searchCount >= 6
-          ? '\n\n[系统提示] 已执行多次搜索。禁止再次调用技能，请输出 DONE。'
+        const forceStop = searchCount >= 3
+          ? '\n\n[系统提示] 已执行多次搜索。禁止再次调用重复技能，请输出 DONE。'
           : '\n\n请判断是否还需要调用技能。如果不需要，输出 DONE。';
 
         const jsonMatch = skillCallMatch[2].match(/\{[\s\S]*\}/);

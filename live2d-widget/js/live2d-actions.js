@@ -16,6 +16,10 @@
         if ($overlay) { $overlay.style.display = 'block'; }
     }
 
+    function hideError() {
+        if ($overlay) { $overlay.style.display = 'none'; }
+    }
+
     async function loadActions(retries) {
         if (retries === undefined) retries = 0;
         try {
@@ -25,6 +29,7 @@
             if (cfg.actions && Object.keys(cfg.actions).length > 0) {
                 actionMap = cfg.actions;
                 loaded = true;
+                hideError();
                 console.log('Actions loaded:', Object.keys(actionMap).join(', '));
             } else {
                 showError('角色卡未配置 live2d.actions');
@@ -39,7 +44,7 @@
         }
     }
 
-    function execute(actionName) {
+    async function execute(actionName) {
         if (!actionName) return;
         if (!loaded) { showError('动作尚未加载完成，请稍候再试'); return; }
         var mapping = actionMap[actionName];
@@ -53,7 +58,8 @@
         var index = mapping.index;
 
         try {
-            model.motion(group, index);
+            await model.motion(group, index);
+            hideError();
         } catch (e) {
             showError('动作执行异常: ' + actionName + '\ngroup=' + JSON.stringify(group) + ' index=' + index + '\n' + e.message);
         }
@@ -62,6 +68,7 @@
     function bindModel() {
         if (window.live2dModel) {
             model = window.live2dModel;
+            hideError();
             console.log('live2d-actions: model bound');
         } else {
             setTimeout(bindModel, 500);

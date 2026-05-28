@@ -422,7 +422,7 @@ export async function search(params: SearchParams): Promise<string> {
     const formatted = formatRetrievalContext(finalResults);
     const searchTime = Date.now() - startTime;
 
-    return `[检索结果] 查询: "${queryStr}" | 找到: ${finalResults.length} 条 | 耗时: ${searchTime}ms\n\n${formatted}`;
+    return `[检索结果] 找到: ${finalResults.length} 条 | 耗时: ${searchTime}ms\n\n${formatted}`;
 
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
