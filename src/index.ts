@@ -781,9 +781,9 @@ async function executeProactiveInteraction(signal: AbortSignal): Promise<void> {
   // 1. 屏幕分析（带上近期对话上下文，帮助 VLLM 避开已讨论的话题）
   let screenDescription = '';
   try {
-    const recentForVllm = getRecentDialoguesText(5, 2);
+    const recentForVllm = getRecentDialoguesText(5, 1);
     const vllmQuery = recentForVllm && recentForVllm.length > 20
-      ? `图中有什么值得讨论的东西？我们最近在聊：${recentForVllm.slice(0, 300)}。请避开我们已经聊过的话题。`
+      ? `图中有什么值得讨论的东西？我们最近在聊：${recentForVllm}。请基于这些对话内容，分析当前屏幕，告诉我有什么新的、相关的、有趣的东西值得我们讨论？`
       : '图中有什么值得讨论的东西？';
     screenDescription = await imageAnalysis({ query: vllmQuery });
   } catch (e) {
