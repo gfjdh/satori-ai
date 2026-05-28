@@ -90,7 +90,10 @@ class UnifiedAgent {
     }
 
     // ========== 阶段2：构建 polisher 初始消息列表 ==========
-    const recentText = getRecentDialoguesText(20);
+    const currentTopic = memoryManager.getCurrentTopic();
+    const recentText = getRecentDialoguesText(20, 6, {
+      sinceDate: currentTopic?.startTime ?? undefined
+    });
     const memoryContext = memoryManager.buildRecentContext();
     const combinedContext = [memoryContext, recentText].filter(Boolean).join('\n\n');
     const polisherMessages: ChatMessage[] = buildPolisherMessages({

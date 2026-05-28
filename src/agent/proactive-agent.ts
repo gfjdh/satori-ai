@@ -48,7 +48,11 @@ export class ProactiveAgent {
     const allVoiceTexts: string[] = [];
     let sentenceIndex = 0;
 
-    const recentText = getRecentDialoguesText(20);
+    const currentTopic = memoryManager.getCurrentTopic();
+    const recentText = getRecentDialoguesText(10, 2, {
+      excludeProactive: true,
+      sinceDate: currentTopic?.startTime ?? undefined
+    });
     const memoryContext = memoryManager.buildRecentContext();
     const combinedContext = [memoryContext, recentText].filter(Boolean).join('\n\n');
 

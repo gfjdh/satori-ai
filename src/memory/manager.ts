@@ -51,6 +51,7 @@ class MemoryManager {
 
     const recentDialogues = dialogueDb.getCharacterDialogueSince(currentTopicStartTime, getCurrentCharacterId());
     if (recentDialogues.length <= 5) return false;
+    if (recentDialogues.length >= 20) return true;
 
     const dialogueText = recentDialogues.map(d =>
       d.userContent === '[Proactive]' ? `${getCharacterName()}：${d.aiContent}` : `用户：${d.userContent}\n${getCharacterName()}：${d.aiContent}`
@@ -415,12 +416,32 @@ ${memoryText}
     return [memories[randomIndex]];
   }
 
-  // 全量加载 day 记忆后随机选一条（用于主动交互）
+  // 加权随机选择 day 记忆（排除最近一周，新近度加权，用于主动交互）
   async recallRandomDayMemory(): Promise<Memory | null> {
     const allDays = memoryDb.getByGranularity('day', 100000);
     if (allDays.length === 0) return null;
-    const idx = Math.floor(Math.random() * allDays.length);
-    return allDays[idx];
+
+    const nowTime = now();
+
+    // 过滤：排除最近7天内的记忆
+    const candidates = allDays
+      .map(m => ({ memory: m, daysAgo: (nowTime.getTime() - (m.periodStart || m.createdAt).getTime()) / 86400000 }))
+      .filter(c => c.daysAgo >= 7);
+
+    if (candidates.length === 0) return null;
+
+    const scored = candidates.map(c => ({
+      memory: c.memory,
+      weight: 1 / (1 + c.daysAgo * 0.1)
+    }));
+
+    const totalWeight = scored.reduce((sum, s) => sum + s.weight, 0);
+    let threshold = Math.random() * totalWeight;
+    for (const s of scored) {
+      threshold -= s.weight;
+      if (threshold <= 0) return s.memory;
+    }
+    return scored[scored.length - 1].memory;
   }
 
   // 启动时恢复未归档的对话并汇总为topic

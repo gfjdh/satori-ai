@@ -14,6 +14,7 @@ import { loadDefaultCharacter, type CharacterConfig } from './character/loader.j
 import { createCharacterRouter } from './character/api.js';
 import { getCurrentCharacterId } from './character/knowledge.js';
 import { proactiveAgent } from './agent/proactive-agent.js';
+import { getRecentDialoguesText } from './agent/dialogue-stats.js';
 import { imageAnalysis } from './skills/image-analysis/index.js';
 import { switchTTSModel } from './tts/client.js';
 import { SSEMessage } from './types/index.js';
@@ -777,11 +778,14 @@ async function checkProactiveInteraction(): Promise<void> {
 
 // 执行主动交互核心逻辑（屏幕分析 → 记忆召回 → LLM生成 → SSE广播）
 async function executeProactiveInteraction(signal: AbortSignal): Promise<void> {
-  // 1. 屏幕分析
+  // 1. 屏幕分析（带上近期对话上下文，帮助 VLLM 避开已讨论的话题）
   let screenDescription = '';
   try {
-    screenDescription = await imageAnalysis({ query: '图中有什么值得讨论的东西？' });
-    // screenDescription = await imageAnalysis({ vllmMode: 'detailed' });
+    const recentForVllm = getRecentDialoguesText(5, 2);
+    const vllmQuery = recentForVllm && recentForVllm.length > 20
+      ? `图中有什么值得讨论的东西？我们最近在聊：${recentForVllm.slice(0, 300)}。请避开我们已经聊过的话题。`
+      : '图中有什么值得讨论的东西？';
+    screenDescription = await imageAnalysis({ query: vllmQuery });
   } catch (e) {
     logDb.insert({
       id: crypto.randomUUID(),

@@ -7,10 +7,14 @@
     const API_BASE = '';
 
     // 音频播放相关状态
+    let audioIdCounter = 0;
     let audioQueue = [];
-    let playedIndices = new Set();
+    let playedIds = new Set();
     let audioElement = null;
     let isAudioPlaying = false;
+    let audioRetryCount = 0;
+    const MAX_AUDIO_RETRIES = 3;
+    let chatActive = false;
 
     // 字幕相关状态
     let messageEls = [];              // 可见的消息DOM元素（最多3条）
@@ -72,14 +76,6 @@
                 streamingTimer = null;
             }
             streamingSentenceIndex = -1;
-            // 停止旧 session 的音频（新 session 已开始，旧音频无意义）
-            if (audioElement) {
-                audioElement.pause();
-                audioElement = null;
-            }
-            isAudioPlaying = false;
-            playedIndices = new Set();
-            audioQueue = [];
         }
         return currentMsgEl;
     }
@@ -99,14 +95,16 @@
             audioElement = null;
         }
         const sortedAudio = audioQueue.sort((a, b) => a.sentenceIndex - b.sentenceIndex);
-        const next = sortedAudio.find(a => !playedIndices.has(a.sentenceIndex));
+        const next = sortedAudio.find(a => !playedIds.has(a.id));
         if (next) {
+            const nextId = next.id;
             const nextIndex = next.sentenceIndex;
             audioElement = new Audio(`data:audio/wav;base64,${next.base64}`);
             audioElement.onended = function() {
                 isAudioPlaying = false;
-                playedIndices.add(nextIndex);
-                audioQueue = audioQueue.filter(a => a.sentenceIndex !== nextIndex);
+                audioRetryCount = 0;
+                playedIds.add(nextId);
+                audioQueue = audioQueue.filter(a => a.id !== nextId);
                 const endPunct = sentenceEndPunctuation.get(nextIndex);
                 const delay = endPunct === 'period' ? 1000 : endPunct === 'comma' ? 500 : 0;
                 sentenceEndPunctuation.delete(nextIndex);
@@ -115,18 +113,24 @@
             audioElement.onerror = function(e) {
                 console.error('Audio playback error:', e);
                 isAudioPlaying = false;
-                playedIndices.add(nextIndex);
-                audioQueue = audioQueue.filter(a => a.sentenceIndex !== nextIndex);
+                playedIds.add(nextId);
+                audioQueue = audioQueue.filter(a => a.id !== nextId);
                 playNextAudio();
             };
             isAudioPlaying = true;
             audioElement.play().catch(function(e) {
-                console.error('Audio play() rejected:', e);
+                console.error('Audio play() rejected (retry ' + (audioRetryCount + 1) + '/' + MAX_AUDIO_RETRIES + '):', e);
                 isAudioPlaying = false;
                 if (audioElement) {
                     audioElement = null;
                 }
-                // 不标记为已播放，不从队列移除 —— 等待 100ms 后重试同一条
+                audioRetryCount++;
+                if (audioRetryCount >= MAX_AUDIO_RETRIES) {
+                    console.error('Max retries reached, skipping audio id=' + nextId);
+                    audioRetryCount = 0;
+                    playedIds.add(nextId);
+                    audioQueue = audioQueue.filter(a => a.id !== nextId);
+                }
                 setTimeout(playNextAudio, 100);
             });
         }
@@ -242,6 +246,7 @@
             try {
                 const audioData = JSON.parse(data);
                 audioQueue.push({
+                    id: ++audioIdCounter,
                     base64: audioData.audio,
                     sentenceIndex: audioData.sentenceIndex
                 });
@@ -249,8 +254,10 @@
                 playNextAudio();
             } catch (e) { console.error('audio parse error:', e); }
         } else if (eventType === 'done') {
-            isStreamDone = true;
-            needNewMsgEl = true;
+            if (!chatActive) {
+                isStreamDone = true;
+                needNewMsgEl = true;
+            }
             processSubtitleQueue();
         } else if (eventType === 'error') {
             try {
@@ -324,7 +331,8 @@
 
         // 重置播放状态
         audioQueue = [];
-        playedIndices = new Set();
+        playedIds = new Set();
+        audioRetryCount = 0;
         isAudioPlaying = false;
         if (audioElement) {
             audioElement.pause();
@@ -342,6 +350,7 @@
         currentMsgEl = null;
 
         try {
+            chatActive = true;
             console.log('Sending message:', userMessage);
             const response = await fetch(API_BASE + '/api/chat', {
                 method: 'POST',
@@ -383,6 +392,7 @@
             var errEl = createMessageElement();
             if (errEl) errEl.textContent = '错误: ' + error.message;
         } finally {
+            chatActive = false;
             sendBtn.disabled = false;
         }
     }

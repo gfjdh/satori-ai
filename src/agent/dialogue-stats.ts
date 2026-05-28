@@ -60,10 +60,53 @@ export function getDialogueStats(): string {
   return stats;
 }
 
-export function getRecentDialoguesText(limit: number = 20, timeLimitHours: number = 1): string {
+export interface RecentDialoguesOptions {
+  /** 过滤掉 [Proactive] 条目并单独归入"已说过的话"section */
+  excludeProactive?: boolean;
+  /** 只返回此时间之后的对话（用于和 memory 金字塔去重） */
+  sinceDate?: Date;
+}
+
+export function getRecentDialoguesText(
+  limit: number = 20,
+  timeLimitHours: number = 1,
+  options?: RecentDialoguesOptions
+): string {
   const characterId = getCurrentCharacterId();
-  const recentDialogues = dialogueDb.getRecent(limit, characterId);
+  let recentDialogues = dialogueDb.getRecent(limit, characterId);
   const cutoff = new Date(now().getTime() - timeLimitHours * 60 * 60 * 1000);
+
+  const sinceDate = options?.sinceDate;
+  if (sinceDate) {
+    recentDialogues = recentDialogues.filter(d => d.createdAt >= sinceDate!);
+  }
+
+  const proactiveLabel = '## 你最近主动说过的话（绝对不要重复这些话题）：';
+  const dialogueLabel = '## 最近对话：';
+
+  if (options?.excludeProactive) {
+    const proactiveLines: string[] = [];
+    const dialogueLines: string[] = [];
+
+    recentDialogues.filter(d => d.createdAt >= cutoff).reverse().forEach(d => {
+      const time = d.createdAt.toISOString().replace('T', ' ').slice(0, 16);
+      if (d.userContent === '[Proactive]') {
+        proactiveLines.push(`[${time}] ${getCharacterName()}：${d.aiContent}`);
+      } else {
+        dialogueLines.push(`[${time}] 用户：${d.userContent}\n[${time}] ${getCharacterName()}：${d.aiContent}`);
+      }
+    });
+
+    const parts: string[] = [];
+    if (proactiveLines.length > 0) {
+      parts.push(proactiveLabel + '\n' + proactiveLines.join('\n'));
+    }
+    if (dialogueLines.length > 0) {
+      parts.push(dialogueLabel + '\n' + dialogueLines.join('\n'));
+    }
+    return parts.join('\n\n');
+  }
+
   return "### 最近对话\n" +
     recentDialogues.filter(d => d.createdAt >= cutoff).reverse().map(d => {
     const time = d.createdAt.toISOString().replace('T', ' ').slice(0, 16);
