@@ -49,7 +49,7 @@
         if (!loaded) { showError('动作尚未加载完成，请稍候再试'); return; }
         var mapping = actionMap[actionName];
         if (!mapping) {
-            showError('未找到动作: ' + actionName + '\n可用: ' + Object.keys(actionMap).join(', '));
+            console.warn('未找到动作: ' + actionName + ', 可用: ' + Object.keys(actionMap).join(', '));
             return;
         }
         if (!model || !model.internalModel) { showError('Live2D 模型尚未就绪'); return; }

@@ -13,8 +13,8 @@ let currentTopicStartTime: Date | null = null;
 
 // 记忆层级配置
 interface GranularityConfig {
-  name: 'topic' | 'day' | 'week' | 'month' | 'year';
-  childGranularity: 'topic' | 'day' | 'week' | 'month' | null;
+  name: 'topic' | 'day' | 'week' | 'month' | 'season' | 'year';
+  childGranularity: 'topic' | 'day' | 'week' | 'month' | 'season' | null;
   summaryThresholdMs: number;  // 触发总结的时间阈值
 }
 
@@ -22,7 +22,8 @@ const GRANULARITY_CONFIGS: GranularityConfig[] = [
   { name: 'day', childGranularity: 'topic', summaryThresholdMs: 24 * 60 * 60 * 1000 },
   { name: 'week', childGranularity: 'day', summaryThresholdMs: 7 * 24 * 60 * 60 * 1000 },
   { name: 'month', childGranularity: 'week', summaryThresholdMs: 4 * 7 * 24 * 60 * 60 * 1000 },
-  { name: 'year', childGranularity: 'month', summaryThresholdMs: 365 * 24 * 60 * 60 * 1000 },
+  { name: 'season', childGranularity: 'month', summaryThresholdMs: 90 * 24 * 60 * 60 * 1000 },
+  { name: 'year', childGranularity: 'season', summaryThresholdMs: 365 * 24 * 60 * 60 * 1000 },
 ];
 
 const ARCHIVE_PROMPT = `总结要求：综合考虑此段记忆未来被调用的场景和目的，无状态地去存储信息，例如把“明天”替换成具体日期，把“最近”替换成具体时间范围等。
@@ -228,7 +229,7 @@ ${ARCHIVE_PROMPT}`;
       // 检查是否达到总结条件（已过去足够时间）
       const elapsed = nowTime.getTime() - summaryStart.getTime();
       if (elapsed >= config.summaryThresholdMs) {
-        const gran = config.name as 'day' | 'week' | 'month' | 'year';
+        const gran = config.name as 'day' | 'week' | 'month' | 'season' | 'year';
         const result = await this.performSummaryFor(gran, config.childGranularity as 'topic' | 'day' | 'week' | 'month', summaryStart, nowTime);
         if (result && gran === 'day') {
           await userProfileManager.summarizeFromMemories(result.summaryContent, result.relevantMemories);
@@ -239,8 +240,8 @@ ${ARCHIVE_PROMPT}`;
 
   // 执行指定粒度的总结
   private async performSummaryFor(
-    granularity: 'day' | 'week' | 'month' | 'year',
-    subGranularity: 'topic' | 'day' | 'week' | 'month',
+    granularity: 'day' | 'week' | 'month' | 'season' | 'year',
+    subGranularity: 'topic' | 'day' | 'week' | 'month' | 'season',
     startDate: Date,
     endDate: Date
   ): Promise<{ summaryContent: string; relevantMemories: Memory[] } | null> {

@@ -191,6 +191,12 @@ export const dialogueDb = {
     return result.count;
   },
 
+  getFirstDialogueTime(characterId: string): Date | null {
+    const stmt = db.prepare('SELECT created_at FROM dialogues WHERE character_id = ? ORDER BY created_at ASC LIMIT 1');
+    const row = stmt.get(characterId) as { created_at: string } | undefined;
+    return row ? new Date(row.created_at) : null;
+  },
+
   getLastDialogueTime(characterId: string): Date | null {
     const stmt = db.prepare('SELECT created_at FROM dialogues WHERE character_id = ? ORDER BY created_at DESC LIMIT 1');
     const row = stmt.get(characterId) as { created_at: string } | undefined;
