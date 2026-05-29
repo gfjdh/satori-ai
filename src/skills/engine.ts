@@ -254,14 +254,26 @@ class SkillEngine {
     }
   }
 
+  // 获取缓存中已加载的 skill 名称列表
+  getCachedSkillNames(): string[] {
+    return [...this.recentSkills];
+  }
+
   // 获取最近使用的skill的SKILL.md内容（用于上下文注入）
+  // 缓存为空时预加载 search 和 image-analysis 两个内置 skill
   async getRecentSkillsContext(): Promise<string> {
-    if (this.recentSkills.length === 0) {
-      this.recentSkills.push("search");
-      const skill = await this.loadSkill("search") || { content: '' };
-      this.skillCache.set("search", skill.content);
-      return this.getRecentSkillsContext();
-    }
+    // if (this.recentSkills.length === 0) {
+    //   const defaults = ['search', 'image-analysis'];
+    //   for (const name of defaults) {
+    //     if (!this.skills.has(name)) continue;
+    //     const skill = await this.loadSkill(name);
+    //     if (skill) {
+    //       this.recentSkills.push(name);
+    //       this.skillCache.set(name, skill.content);
+    //     }
+    //   }
+    //   if (this.recentSkills.length === 0) return '';
+    // }
 
     const parts: string[] = ['[最近使用的Skill参考]'];
     for (const name of this.recentSkills) {

@@ -1,20 +1,17 @@
 /**
- * Unified Agent v5 — Polisher 主循环 + Analyzer 子例程
+ * Unified Agent v6 — ReAct Agent（单 Agent + native function calling）
  *
- * 架构：polisher 驱动，analyzer 作为其"万能助手"子例程。
- * 各自维护 ChatMessage[] 消息列表，交替协作。
- *
- * v5 变更：
- * - polisher 作为主循环，当 needDeepThink=true 时调用 analyzer 子例程
- * - polisher 在 voice/subtitle 中表达信息需求，analyzer 参数化为工具调用
- * - analyzer 只输出 SKILL_README/SKILL_CALL/DONE，结果原样传递给 polisher
- * - 两套 ChatMessage[] 分别持久化，跨轮次增长
+ * v6 变更：
+ * - Polisher+Analyzer 双 Agent 合并为单一 ReAct 循环
+ * - 使用 OpenAI 原生 function calling 替代自研文本协议
+ * - 简单对话 1 次 LLM 调用，复杂对话 2 次（tool call → text generation）
+ * - 移除 needDeepThink / deep_think_pending / deep_think_progress
  */
 
 import { stateManager } from '../state/manager.js';
 import { memoryManager } from '../memory/manager.js';
 import { dialogueDb, logDb, now } from '../db/database.js';
-import { callLLMStream, getLLMConfig } from '../api/llm.js';
+import { callLLMStream, callLLMWithTools, getLLMConfig } from '../api/llm.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Dialogue, SSEMessage } from '../types/index.js';
 import { skillEngine } from '../skills/engine.js';
@@ -22,10 +19,11 @@ import { getAvailableEmotions } from '../tts/client.js';
 import { loadDefaultCharacter, getAvailableActions, type CharacterConfig } from '../character/loader.js';
 import { userProfileManager } from '../user/profile.js';
 
-import { buildPolisherMessages, buildPolisherResultUser, buildAnalyzerMessages, buildAnalyzerContinuationUser, type ChatMessage } from './prompts.js';
+import { buildReActMessages, type ChatMessage } from './prompts.js';
 import { parseSegment, emitSegment } from './segment-utils.js';
-import { createAnalysisSession } from './analysis-loop.js';
 import { getDialogueStats, getRecentDialoguesText } from './dialogue-stats.js';
+import { toolRegistry } from './tool-registry.js';
+import { getDisclosedSkills, discloseSkill } from './tools.js';
 
 class UnifiedAgent {
   private character: CharacterConfig;
@@ -61,7 +59,10 @@ class UnifiedAgent {
     const allVoiceTexts: string[] = [];
     let sentenceIndex = 0;
 
-    // ========== 阶段1：预检索 ==========
+    // ========== Phase 0: Pre-load skill cache (BEFORE Phase 1 to avoid cache pollution) ==========
+    const recentSkillsContext = await skillEngine.getRecentSkillsContext();
+
+    // ========== Phase 1: Pre-retrieval ==========
     const recentDialoguesForRetrieval = getRecentDialoguesText(5);
     const retrievalQuery = recentDialoguesForRetrieval
       ? recentDialoguesForRetrieval + '\n' + userInput
@@ -75,28 +76,43 @@ class UnifiedAgent {
       return this.finalizeTurn(userInput, allVoiceTexts, onSSE, turnId, turnIndex);
     }
 
-    // ========== 阶段1.5：触发词匹配 ==========
+    // ========== Phase 1.5: Trigger word matching ==========
     let visualContext = '';
+    let triggerSkillsContext = '';
     const triggeredSkills = skillEngine.matchTriggerSkills(userInput);
     for (const skill of triggeredSkills) {
-      const result = await skillEngine.executeSkill(skill.name, { query: userInput });
-      if (result && skill.name === 'image-analysis') {
-        visualContext = result;
+      // 动态注册 skill 附带的 tool + 预加载完整 README
+      discloseSkill(skill.name);
+      const fullSkill = await skillEngine.loadSkill(skill.name);
+      if (fullSkill) {
+        triggerSkillsContext += `[触发词预加载: ${skill.name}]\n${fullSkill.content}\n\n`;
       }
+      if (skill.name === 'image-analysis') {
+        visualContext = await skillEngine.executeSkill(skill.name, { query: userInput });
+      }
+    }
+    // 合并触发词 skill README 到 visualContext（同属即时上下文）
+    if (triggerSkillsContext) {
+      visualContext = triggerSkillsContext + visualContext;
     }
 
     if (signal?.aborted) {
       return this.finalizeTurn(userInput, allVoiceTexts, onSSE, turnId, turnIndex);
     }
 
-    // ========== 阶段2：构建 polisher 初始消息列表 ==========
+    // ========== Phase 2: Build messages ==========
     const currentTopic = memoryManager.getCurrentTopic();
     const recentText = getRecentDialoguesText(20, 6, {
       sinceDate: currentTopic?.startTime ?? undefined
     });
     const memoryContext = memoryManager.buildRecentContext();
     const combinedContext = [memoryContext, recentText].filter(Boolean).join('\n\n');
-    const polisherMessages: ChatMessage[] = buildPolisherMessages({
+
+    const cachedNames = skillEngine.getCachedSkillNames();
+    const disclosedNames = getDisclosedSkills();
+    const disclosedSkillNames = [...new Set([...cachedNames, ...disclosedNames])];
+
+    const messages: ChatMessage[] = buildReActMessages({
       userInput,
       retrievalResults: retrievalContext,
       visualContext,
@@ -107,77 +123,98 @@ class UnifiedAgent {
       affinityDescription: stateManager.getAffinityDescription(),
       dialogueStats: getDialogueStats(),
       recentDialogues: combinedContext,
+      recentSkillsContext,
       availableEmotions,
       availableActions,
       speechLanguage,
       subtitleLanguage,
-      userProfile: userProfileManager.getProfileContext()
+      userProfile: userProfileManager.getProfileContext(),
+      disclosedSkillNames
     });
 
-    // ========== 阶段3：Polisher 驱动的主循环 ==========
-    let polisherRound = 0;
-    const maxPolisherRounds = 3;
-    let analyzerMessages: ChatMessage[] = [];
-    let allRawFindings = '';
+    // ========== Phase 3: ReAct Loop ==========
+    let round = 0;
+    const maxRounds = 6;
+    let totalToolCalls = 0;
+    const maxToolCalls = 3;
 
-    const skillList = skillEngine.getAllSkillMetas()
-      .map(s => `- ${s.name}: ${s.description}`).join('\n');
-
-    while (polisherRound < maxPolisherRounds) {
+    while (round < maxRounds) {
       if (signal?.aborted) break;
-      polisherRound++;
+      round++;
 
-      // --- 流式调用 polisher ---
-      let fullResponse = '';
+      const toolCallsThisRound = new Map<string, { name: string; arguments: string }>();
+      let textDeltaThisRound = '';
       let buffer = '';
-      let roundNeedDeepThink = false;
-      let infoNeed = '';
 
-      const stream = callLLMStream(
-        { model: config.model, messages: polisherMessages, temperature: 0.7 },
+      // 温度分离：文本生成用 0.7，处理工具结果用 0.3（原 Analyzer 专用温度）
+      const temperature = totalToolCalls > 0 ? 0.3 : 0.7;
+
+      // 工具调用达上限后不再传 tools，强制文本输出
+      const activeTools = totalToolCalls >= maxToolCalls ? undefined : toolRegistry.getDefinitions();
+
+      const stream = callLLMWithTools(
+        {
+          model: config.model,
+          messages,
+          temperature,
+          ...(activeTools ? { tools: activeTools, tool_choice: 'auto' as const } : {})
+        },
         true,
-        `polisher-round-${polisherRound}`,
+        `react-round-${round}`,
         signal
       );
 
       for await (const chunk of stream) {
         if (signal?.aborted) break;
-        buffer += chunk;
 
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+        switch (chunk.kind) {
+          case 'text':
+            textDeltaThisRound += chunk.delta;
+            buffer += chunk.delta;
 
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || !trimmed.startsWith('{')) continue;
+            {
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || !trimmed.startsWith('{')) continue;
+                const seg = parseSegment(trimmed);
+                if (!seg) continue;
+                sentenceIndex = await emitSegment(
+                  seg, sentenceIndex, speechLanguage, subtitleLanguage,
+                  this.character.id, onSSE
+                );
+                allVoiceTexts.push(seg.voice);
+              }
+            }
+            break;
 
-          const seg = parseSegment(trimmed);
-          if (!seg) continue;
+          case 'tool_call_start':
+            toolCallsThisRound.set(chunk.id, { name: chunk.name, arguments: '' });
+            break;
 
-          fullResponse += trimmed + '\n';
-
-          if (seg.needDeepThink && !roundNeedDeepThink) {
-            roundNeedDeepThink = true;
-            infoNeed = seg.subtitle || seg.voice;
+          case 'tool_call_delta': {
+            const existing = toolCallsThisRound.get(chunk.id);
+            if (existing) existing.arguments += chunk.delta;
+            break;
           }
 
-          sentenceIndex = await emitSegment(
-            seg, sentenceIndex, speechLanguage, subtitleLanguage,
-            this.character.id, onSSE
-          );
-          allVoiceTexts.push(seg.voice);
+          case 'tool_call_end': {
+            const existing = toolCallsThisRound.get(chunk.id);
+            if (existing) {
+              existing.arguments = chunk.arguments || existing.arguments;
+            } else {
+              toolCallsThisRound.set(chunk.id, { name: chunk.name, arguments: chunk.arguments });
+            }
+            break;
+          }
         }
       }
 
-      // 处理流结束后的残留 buffer
+      // Process residual buffer
       if (!signal?.aborted && buffer.trim()) {
         const seg = parseSegment(buffer.trim());
         if (seg) {
-          fullResponse += buffer.trim();
-          if (seg.needDeepThink && !roundNeedDeepThink) {
-            roundNeedDeepThink = true;
-            infoNeed = seg.subtitle || seg.voice;
-          }
           sentenceIndex = await emitSegment(
             seg, sentenceIndex, speechLanguage, subtitleLanguage,
             this.character.id, onSSE
@@ -186,64 +223,55 @@ class UnifiedAgent {
         }
       }
 
-      // 追加 assistant 回复到 polisher 消息列表
-      polisherMessages.push({ role: 'assistant', content: fullResponse });
+      // Append assistant message
+      if (textDeltaThisRound || toolCallsThisRound.size > 0) {
+        const assistantMsg: ChatMessage = { role: 'assistant' };
 
-      // 本轮没有 needDeepThink → 结束
-      if (!roundNeedDeepThink) break;
-
-      // 首次进入深度分析时通知前端
-      if (polisherRound === 1) {
-        onSSE?.({ type: 'deep_think_pending', data: { value: true } });
-      }
-
-      // ========== 阶段4：构建/续接 analyzer 消息列表并执行子循环 ==========
-      if (analyzerMessages.length === 0) {
-        const recentSkillsContext = await skillEngine.getRecentSkillsContext();
-        analyzerMessages = buildAnalyzerMessages(infoNeed, {
-          userInput,
-          retrievalResults: retrievalContext,
-          characterInfo,
-          skillList,
-          recentSkillsContext,
-          recentDialogues: combinedContext,
-          speechLanguage,
-          subtitleLanguage
-        });
-      } else {
-        analyzerMessages.push(
-          buildAnalyzerContinuationUser(infoNeed, allRawFindings)
-        );
-      }
-
-      const session = createAnalysisSession(analyzerMessages, signal);
-
-      while (true) {
-        if (signal?.aborted) break;
-        const result = await session.next();
-        if (signal?.aborted) break;
-
-        analyzerMessages = session.getMessages();
-
-        if (result.status === 'in_progress') {
-          onSSE?.({
-            type: 'deep_think_progress',
-            data: { description: result.actionDescription }
-          });
-          continue;
+        if (textDeltaThisRound) {
+          assistantMsg.content = textDeltaThisRound;
         }
 
-        // complete 或 max_rounds
-        allRawFindings = allRawFindings + result.rawFindings;
-        break;
+        if (toolCallsThisRound.size > 0) {
+          assistantMsg.tool_calls = Array.from(toolCallsThisRound.entries()).map(
+            ([id, tc]) => ({
+              id,
+              type: 'function' as const,
+              function: { name: tc.name, arguments: tc.arguments }
+            })
+          );
+        }
+
+        messages.push(assistantMsg);
       }
 
-      if (signal?.aborted) break;
+      // If no tool calls, done
+      if (toolCallsThisRound.size === 0) break;
 
-      // 将原始检索结果喂给 polisher 进行下一轮合成
-      polisherMessages.push(
-        buildPolisherResultUser(allRawFindings)
-      );
+      // Execute tools and append results
+      for (const [toolCallId, toolCall] of toolCallsThisRound) {
+        let params: Record<string, unknown> = {};
+        if (toolCall.arguments) {
+          try { params = JSON.parse(toolCall.arguments); } catch { params = { query: toolCall.arguments }; }
+        }
+
+        totalToolCalls++;
+
+        const toolResult = await toolRegistry.execute(toolCall.name, params);
+
+        logDb.insert({
+          id: uuidv4(),
+          level: 'debug',
+          category: 'agent',
+          content: `[ReAct tool: ${toolCall.name}]\n${toolResult.slice(0, 500)}`,
+          createdAt: now()
+        });
+
+        messages.push({
+          role: 'tool' as const,
+          tool_call_id: toolCallId,
+          content: toolResult
+        } satisfies ChatMessage as ChatMessage);
+      }
     }
 
     return this.finalizeTurn(userInput, allVoiceTexts, onSSE, turnId, turnIndex);

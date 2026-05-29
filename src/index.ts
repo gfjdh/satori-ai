@@ -5,6 +5,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { unifiedAgent } from './agent/unified-agent.js';
+import { toolRegistry } from './agent/tool-registry.js';
 import { embeddingManager } from './embedding/manager.js';
 import { stateManager } from './state/manager.js';
 import { memoryManager } from './memory/manager.js';
@@ -839,9 +840,13 @@ app.listen(PORT, async () => {
   applyCharacterRuntime(character);
 
   // 配置状态管理器使用角色卡的阶段定义
-  // 初始化Skill引擎
+  // 初始化Skill引擎 + 注册为Tool
   const skillMetas = skillEngine.getAllSkillMetas();
   logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Loaded ${skillMetas.length} skills`, createdAt: now() });
+
+  const { initTools } = await import('./agent/tools.js');
+  await initTools();
+  logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: `Registered ${toolRegistry.list().length} tools`, createdAt: now() });
 
   // 预加载 Embedding 模型（后台进行，不阻塞启动）
   embeddingManager.preload().then(() => {

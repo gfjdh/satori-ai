@@ -180,13 +180,46 @@ export interface AgentDecision {
   reasoning?: string;
 }
 
+// ========== Function Calling 类型 ==========
+
+export interface OpenAIFunctionDef {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
+export interface ToolDef {
+  type: 'function';
+  function: OpenAIFunctionDef;
+}
+
+export type StreamChunk =
+  | { kind: 'text'; delta: string }
+  | { kind: 'tool_call_start'; id: string; name: string }
+  | { kind: 'tool_call_delta'; id: string; delta: string }
+  | { kind: 'tool_call_end'; id: string; name: string; arguments: string };
+
+// LLM 消息类型
+export interface LLMMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content?: string;
+  tool_calls?: Array<{
+    id: string;
+    type: 'function';
+    function: { name: string; arguments: string };
+  }>;
+  tool_call_id?: string;
+}
+
 // LLM请求
 export interface LLMRequest {
   model: string;
-  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+  messages: LLMMessage[];
   temperature?: number;
   stream?: boolean;
-  thinking?: boolean; // 开启思考模式（用于o1等模型）
+  thinking?: boolean;
+  tools?: ToolDef[];
+  tool_choice?: 'auto' | 'none';
 }
 
 // LLM响应

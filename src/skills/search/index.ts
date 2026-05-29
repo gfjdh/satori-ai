@@ -432,3 +432,44 @@ export async function search(params: SearchParams): Promise<string> {
 }
 
 export type { SearchParams };
+
+// ========== Tool 注册（由 read_skill 动态加载） ==========
+
+import type { ToolDef } from '../../types/index.js';
+
+export const toolDefs: ToolDef[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'search',
+      description: '在长期记忆和本地资料库中检索相关信息。不要使用相似的查询重复搜索，一次搜索不理想应立即停止。',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: '查询文本（用于向量检索的整句，可以是问题或陈述）' },
+          keywords: {
+            type: 'object',
+            properties: { direct: { type: 'array', items: { type: 'string' }, description: '直接关键词列表' } },
+            description: '关键词过滤（可选）'
+          },
+          timeRange: {
+            type: 'object',
+            properties: {
+              start: { type: 'string', description: '开始日期，格式 YYYY-MM-DD' },
+              end: { type: 'string', description: '结束日期，格式 YYYY-MM-DD' }
+            },
+            description: '时间范围筛选（可选）'
+          },
+          limit: { type: 'number', description: '返回结果数量，默认10' }
+        },
+        required: ['query']
+      }
+    }
+  }
+];
+
+export const toolHandlers: Record<string, (params: Record<string, unknown>) => Promise<string>> = {
+  search: async (params: Record<string, unknown>) => {
+    return await search(params as unknown as SearchParams);
+  }
+};

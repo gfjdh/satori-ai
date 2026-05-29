@@ -18,8 +18,7 @@ export function parseSegment(line: string): Segment | null {
         emotion: obj.emotion,
         action: action,
         voice: obj.voice,
-        subtitle: obj.subtitle,
-        needDeepThink: obj.needDeepThink === true
+        subtitle: obj.subtitle
       };
     }
   } catch {

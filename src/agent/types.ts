@@ -7,9 +7,4 @@ export interface Segment {
   action: string;
   voice: string;
   subtitle?: string;
-  needDeepThink?: boolean;
-}
-
-export interface AnalysisResult {
-  segments: Segment[];
 }
