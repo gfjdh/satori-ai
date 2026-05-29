@@ -154,13 +154,20 @@ const TOPIC_BLACKLIST_RULE = `### 话题黑名单（最高优先级，违反此�
 • **关心类话题同样适用**：如果用户已就某个关心/提醒（如作息、学习、工作、健康等）给出了明确答复（如"知道了""会注意的""做完X就去做"），不要再重复提醒同一件事。反复唠叨不是关心，是烦人。
 }`
 
+const TOOL_USAGE_RULE = `### 工具使用规则（重要）：{
+- 仅在需要获取你目前无法回答的信息时才调用工具。日常闲聊不需要工具。
+- 调用工具前，先检查上下文（包括最近对话记录和当前屏幕内容）是否已经包含了相关信息。上下文里已经明确的事情，不要再问，也不要再调用工具。
+- 每次工具调用必须伴随至少一行文字回应，让用户立即看到你的回复。尽量不要在没有任何文字回应的情况下直接调用工具。
+- 可以并且推荐在同一轮中调用多个工具。
+}`
+
 /** 构建永久 Skill 列表（所有 skill 的名称 + 简介，供模型选择召回） */
 function buildSkillList(): string {
   const metas = skillEngine.getAllSkillMetas();
-  if (metas.length === 0) return '\n\n重要：仅在需要获取你目前无法回答的信息时才调用工具。日常闲聊不需要工具。';
+  if (metas.length === 0) return '\n（当前没有可用的 Skill）\n';
 
   const lines = metas.map(m => `- **${m.name}**: ${m.description || '（无描述）'}`);
-  return `## 可用 Skill 列表：{\n${lines.join('\n')}\n}\n\n重要：仅在需要获取你目前无法回答的信息时才调用工具。日常闲聊不需要工具。`;
+  return `## 可用 Skill 列表：{\n${lines.join('\n')}\n}\n\n${TOOL_USAGE_RULE}`;
 }
 
 // ========== 共享 System Prompt 组件 ==========

@@ -272,23 +272,20 @@ async function searchKnowledge(
 }
 
 function searchCharKnowledge(
-  query: string,
   keywords: string[],
   topK: number
 ): { results: RetrievalResult[] } {
   const characterId = getCurrentCharacterId();
   if (!characterId) return { results: [] };
 
-  const effectiveTerms = keywords.length > 0 ? keywords : (query.length >= 2 ? [query] : []);
-
   let charResults: RetrievalResult[] = [];
   try {
-    const raw = searchCharacterKnowledge(characterId, effectiveTerms, topK * 2);
+    const raw = searchCharacterKnowledge(characterId, keywords, topK * 2);
     charResults = raw.map(r => ({
       id: r.id || crypto.randomUUID(),
       content: r.content,
       source: 'character_knowledge' as const,
-      score: bm25Score(query, r.content, effectiveTerms),
+      score: bm25Score('', r.content, keywords),
       metadata: {}
     }));
   } catch (error) {
@@ -354,12 +351,11 @@ async function handleSearchCharacter(params: Record<string, unknown>): Promise<s
   const keywords = (params.keywords as { direct?: string[] })?.direct || [];
   if (keywords.length === 0) return '（关键词为空 — search_character 仅支持关键词检索，请提供 keywords.direct）';
 
-  const query = (params.query as string) || '';
   const limit = Math.max(1, (params.limit as number) || 10);
 
   const startTime = Date.now();
 
-  const { results } = searchCharKnowledge(query, keywords, limit);
+  const { results } = searchCharKnowledge(keywords, limit);
   const formatted = formatRetrievalContext(results, '角色知识');
   const searchTime = Date.now() - startTime;
 
@@ -383,7 +379,7 @@ export async function search(params: Record<string, unknown>): Promise<string> {
   const [memResult, kbResult, charResult] = await Promise.all([
     searchMemories(query, keywords, timeRange, k).catch(() => ({ results: [] as RetrievalResult[] })),
     searchKnowledge(query, keywords, k).catch(() => ({ results: [] as RetrievalResult[] })),
-    Promise.resolve(searchCharKnowledge(query, keywords, k))
+    Promise.resolve(searchCharKnowledge(keywords, k))
   ]);
 
   // 记忆富化（前3条）
@@ -476,7 +472,6 @@ export const toolDefs: ToolDef[] = [
             properties: { direct: { type: 'array', items: { type: 'string' }, description: '精确关键词列表（至少一个）' } },
             description: '关键词（必填）'
           },
-          query: { type: 'string', description: '补充查询文本（可选）' },
           limit: { type: 'number', description: '返回数量，默认10' }
         },
         required: ['keywords']

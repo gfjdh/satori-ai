@@ -118,6 +118,9 @@
                 playNextAudio();
             };
             isAudioPlaying = true;
+            if (next.action && window.live2dActions) {
+                window.live2dActions.execute(next.action);
+            }
             audioElement.play().catch(function(e) {
                 console.error('Audio play() rejected (retry ' + (audioRetryCount + 1) + '/' + MAX_AUDIO_RETRIES + '):', e);
                 isAudioPlaying = false;
@@ -162,7 +165,7 @@
         streamingSentenceIndex = sentenceIndex;
         let charIndex = 0;
         const chars = text.split('');
-        const BASE_DELAY = 200;
+        const BASE_DELAY = 100;
 
         function displayNextChar() {
             if (charIndex < chars.length) {
@@ -222,10 +225,6 @@
                 const voiceData = JSON.parse(data);
                 const sentenceIndex = voiceData.sentenceIndex || 0;
                 sentenceEndPunctuation.set(sentenceIndex, getEndPunctuation(voiceData.text || ''));
-
-                if (voiceData.action && window.live2dActions) {
-                    window.live2dActions.execute(voiceData.action);
-                }
             } catch (e) { console.error('voice parse error:', e); }
         } else if (eventType === 'subtitle') {
             try {
@@ -248,7 +247,8 @@
                 audioQueue.push({
                     id: ++audioIdCounter,
                     base64: audioData.audio,
-                    sentenceIndex: audioData.sentenceIndex
+                    sentenceIndex: audioData.sentenceIndex || 0,
+                    action: audioData.action || ''
                 });
                 audioQueue.sort(function(a, b) { return a.sentenceIndex - b.sentenceIndex; });
                 playNextAudio();

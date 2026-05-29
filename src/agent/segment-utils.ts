@@ -69,27 +69,32 @@ export async function emitSegment(
     data: {
       text: seg.voice,
       emotion: seg.emotion,
-      action: seg.action,
       language: speechLanguage,
       sentenceIndex
     }
   });
 
-  if (seg.subtitle && speechLanguage !== subtitleLanguage) {
-    onSSE?.({
-      type: 'subtitle',
-      data: { text: seg.subtitle, sentenceIndex }
-    });
-  }
-
   try {
     const audioBuffer = await synthesizeStream(seg.voice, characterId, seg.emotion);
     onSSE?.({
       type: 'audio',
-      data: { audio: audioBuffer.toString('base64'), sentenceIndex }
+      data: { audio: audioBuffer.toString('base64'), action: seg.action, sentenceIndex }
     });
+
+    if (seg.subtitle && speechLanguage !== subtitleLanguage) {
+      onSSE?.({
+        type: 'subtitle',
+        data: { text: seg.subtitle, sentenceIndex }
+      });
+    }
   } catch {
-    // TTS 失败不阻塞
+    // TTS 失败不阻塞，字幕仍需发送
+    if (seg.subtitle && speechLanguage !== subtitleLanguage) {
+      onSSE?.({
+        type: 'subtitle',
+        data: { text: seg.subtitle, sentenceIndex }
+      });
+    }
   }
 
   return sentenceIndex + 1;
