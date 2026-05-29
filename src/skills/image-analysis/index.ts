@@ -44,12 +44,16 @@ export async function imageAnalysis(params: ImageAnalysisParams): Promise<string
 
   const vllmLabel = vllmMode === 'detailed' ? '详细' : '快速';
 
-  let output = `[图像分析结果] VLLM:${vllmLabel} | 耗时: ${elapsed.toFixed(0)}ms\n\n`;
+  let output = `[图像分析结果] 当前屏幕内容:${vllmLabel} | 耗时: ${elapsed.toFixed(0)}ms\n
+屏幕内容豁免（最高优先级）：
+用户让你看/评价屏幕上的任何东西，你不需要深度分析——屏幕描述已经提供了全部信息，直接基于已有描述发表看法即可。
+屏幕内容相关的对话永远不需要 needDeepThink。
+\n`;
 
   if (result.vllm_result) {
-    output += `--- VLLM 描述（${vllmLabel}） ---\n${result.vllm_result}\n`;
+    output += `--- 当前屏幕内容（${vllmLabel}） ---\n${result.vllm_result}\n`;
   } else {
-    output += '--- 未获取到 VLLM 结果 ---\n';
+    output += '--- 未获取到 当前屏幕内容 结果 ---\n';
   }
 
   logDb.insert({

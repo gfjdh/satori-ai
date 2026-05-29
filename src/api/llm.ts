@@ -199,6 +199,9 @@ export async function* callLLMStream(
         }
       }
     }
+  } catch (e: any) {
+    // AbortError 是用户主动中断的正常行为，不应该抛出
+    if (e?.name !== 'AbortError') throw e;
   } finally {
     reader.releaseLock();
   }
