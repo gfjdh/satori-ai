@@ -1,9 +1,9 @@
 /**
- * Search Skill — 统一检索入口
+ * Search Skill — 三个独立检索工具
  *
- * 检索策略：
- * - 记忆/知识库：向量检索 + 关键词检索，各取 topK 后合并去重
- * - 角色知识：仅关键词检索
+ * - search_memory：长期记忆检索（向量 + 关键词 + 时间范围 + 粗粒度富化）
+ * - search_knowledge：本地资料库检索（向量 + 关键词）
+ * - search_character：角色知识库检索（仅关键词）
  *
  * 计分规则：
  * - bm25Score = stringSimilarity(query, doc) + BM25(keywords) * 2，归一化到 [0,1]
@@ -18,17 +18,7 @@ import { v4 as uuidv4 } from 'uuid';
 import StringSimilarity from 'string-similarity';
 import { Memory } from '../../types/index.js';
 
-interface SearchParams {
-  query: string;
-  keywords?: {
-    direct?: string[];
-  };
-  timeRange?: {
-    start?: string;
-    end?: string;
-  };
-  limit?: number;
-}
+// ========== 类型 ==========
 
 interface RetrievalResult {
   id: string;
@@ -44,27 +34,10 @@ interface RetrievalResult {
   };
 }
 
-// BM25 参数
+// ========== BM25 ==========
+
 const BM25_K1 = 1.6;
 
-// 粒度层级，从细到粗（用于富化逻辑）
-// topic 最细，year 最粗
-const GRANULARITY_HIERARCHY: Record<string, string[]> = {
-  'topic': ['day', 'week', 'month', 'season', 'year'],
-  'day': ['week', 'month', 'season', 'year'],
-  'week': ['month', 'season', 'year'],
-  'month': ['season', 'year'],
-  'season': ['year'],
-  'year': []
-};
-
-/**
- * 计算 BM25 得分（关键词匹配部分）
- * 返回值在 [0,1] 之间，表示关键词在文档中的相关程度
- * 这里简化了 IDF 部分，假设所有关键词的 IDF 都相同，因此只计算 TF 饱和度
- * TF 计算为：查询关键词在文档中出现的总次数
- * BM25 公式简化为：TF / (K1 + TF)，其中 K1 是调节参数，常用值在 1.2 到 2.0 之间
- */
 function computeBM25(doc: string, keywords: string[]): number {
   if (!keywords || keywords.length === 0) return 0;
 
@@ -73,7 +46,6 @@ function computeBM25(doc: string, keywords: string[]): number {
 
   for (const kw of keywords) {
     const kwLower = kw.toLowerCase();
-    // 计算词频：kw 在 doc 中出现的次数
     let count = 0;
     let pos = 0;
     while ((pos = docLower.indexOf(kwLower, pos)) !== -1) {
@@ -83,28 +55,32 @@ function computeBM25(doc: string, keywords: string[]): number {
     totalTF += count;
   }
 
-  // 简化的 BM25：TF / (K1 + TF) * IDF（这里假设 IDF = 1）
-  const tfSaturate = totalTF / (BM25_K1 + totalTF);
-  return tfSaturate;
+  return totalTF / (BM25_K1 + totalTF);
 }
 
-/**
- * BM25 风格计分
- * 返回 stringSimilarity + BM25 * 2，归一化到 [0,1]
- */
 function bm25Score(query: string, doc: string, keywords: string[]): number {
   const stringSim = StringSimilarity.compareTwoStrings(query.toLowerCase(), doc.toLowerCase());
   const bm25 = computeBM25(doc, keywords);
-
-  // 权重 1:2，所以 max = 1 + 2 = 3
   const raw = stringSim + bm25 * 2;
   return Math.min(raw / 3, 1);
 }
 
-/**
- * 对记忆进行富化：补充更粗粒度的记忆内容
- */
-function enrichMemoryWithCoarser(memResult: { id: string; content: string; granularity?: string }, startDate?: Date, endDate?: Date): string {
+// ========== 记忆富化 ==========
+
+const GRANULARITY_HIERARCHY: Record<string, string[]> = {
+  'topic': ['day', 'week', 'month', 'season', 'year'],
+  'day': ['week', 'month', 'season', 'year'],
+  'week': ['month', 'season', 'year'],
+  'month': ['season', 'year'],
+  'season': ['year'],
+  'year': []
+};
+
+function enrichMemoryWithCoarser(
+  memResult: { id: string; content: string; granularity?: string },
+  startDate?: Date,
+  endDate?: Date
+): string {
   const mem = memoryDb.getAll().find(m => m.id === memResult.id && m.granularity === memResult.granularity);
   if (!mem) return memResult.content;
 
@@ -114,7 +90,6 @@ function enrichMemoryWithCoarser(memResult: { id: string; content: string; granu
   const coarserMemories = memoryDb.getCoarserMemories(mem, startDate, endDate);
   if (coarserMemories.length === 0) return memResult.content;
 
-  // 按从粗到细排序
   const order = ['year', 'season', 'month', 'week', 'day'];
   coarserMemories.sort((a, b) => order.indexOf(a.granularity) - order.indexOf(b.granularity));
 
@@ -137,15 +112,45 @@ function enrichMemoryWithCoarser(memResult: { id: string; content: string; granu
   return enrichedParts.join('');
 }
 
-/**
- * 记忆检索（向量 + 关键词，各取 topK 后合并去重）
- */
+// ========== 通用格式化 ==========
+
+function formatDate(isoString: string): string {
+  const d = new Date(isoString);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+function formatRetrievalContext(results: RetrievalResult[], resultLabel: string): string {
+  if (results.length === 0) return `（无相关${resultLabel}）`;
+
+  return results
+    .map(r => {
+      let label: string;
+
+      if (r.source === 'memory' && r.metadata.granularity) {
+        const period = r.metadata.periodStart && r.metadata.periodEnd
+          ? `${formatDate(r.metadata.periodStart)}~${formatDate(r.metadata.periodEnd)}`
+          : '';
+        label = `[${r.metadata.granularity}${period ? ' ' + period : ''}]`;
+      } else if (r.source === 'knowledge' && r.metadata.category) {
+        label = `[${r.metadata.category}]`;
+      } else {
+        label = `[${r.source}]`;
+      }
+
+      const stateSuffix = r.metadata.userState ? `（此时段用户状态: ${r.metadata.userState}）` : '';
+      return `${label} ${r.content}${stateSuffix} (score: ${r.score.toFixed(3)})`;
+    })
+    .join('\n');
+}
+
+// ========== 核心检索函数 ==========
+
 async function searchMemories(
   query: string,
   keywords: string[],
   timeRange: { start?: string; end?: string } | undefined,
   topK: number
-): Promise<RetrievalResult[]> {
+): Promise<{ results: RetrievalResult[] }> {
   const startTime = timeRange?.start ? new Date(timeRange.start) : undefined;
   const endTime = timeRange?.end ? new Date(timeRange.end) : undefined;
 
@@ -173,7 +178,7 @@ async function searchMemories(
     logDb.insert({ id: uuidv4(), level: 'warn', category: 'retrieval', content: `Memory vector search failed: ${error}`, createdAt: now() });
   }
 
-  // 关键词检索：getAll + timeRange 预筛选 + bm25Score 排序
+  // 关键词检索
   let allMemories = memoryDb.getAll();
   if (startTime || endTime) {
     allMemories = allMemories.filter(mem => {
@@ -200,34 +205,25 @@ async function searchMemories(
     .sort((a, b) => b.score - a.score)
     .slice(0, topK);
 
-  // 合并去重：关键词结果在前，向量结果在后
+  // 合并去重：关键词在前，向量在后
   const seen = new Set<string>();
   const merged: RetrievalResult[] = [];
 
   for (const r of keywordResults) {
-    if (!seen.has(r.id)) {
-      seen.add(r.id);
-      merged.push(r);
-    }
+    if (!seen.has(r.id)) { seen.add(r.id); merged.push(r); }
   }
   for (const r of vectorResults) {
-    if (!seen.has(r.id)) {
-      seen.add(r.id);
-      merged.push(r);
-    }
+    if (!seen.has(r.id)) { seen.add(r.id); merged.push(r); }
   }
 
-  return merged.slice(0, topK);
+  return { results: merged.slice(0, topK) };
 }
 
-/**
- * 知识库检索（向量 + 关键词，各取 topK 后合并去重）
- */
 async function searchKnowledge(
   query: string,
   keywords: string[],
   topK: number
-): Promise<RetrievalResult[]> {
+): Promise<{ results: RetrievalResult[] }> {
   // 向量检索
   let vectorResults: RetrievalResult[] = [];
   try {
@@ -247,7 +243,7 @@ async function searchKnowledge(
     logDb.insert({ id: uuidv4(), level: 'warn', category: 'retrieval', content: `Knowledge vector search failed: ${error}`, createdAt: now() });
   }
 
-  // 关键词检索：getAll + bm25Score 排序
+  // 关键词检索
   const allEntries = knowledgeDb.getAll();
   const keywordResults: RetrievalResult[] = allEntries
     .map(entry => ({
@@ -261,36 +257,27 @@ async function searchKnowledge(
     .sort((a, b) => b.score - a.score)
     .slice(0, topK);
 
-  // 合并去重：关键词结果在前，向量结果在后
+  // 合并去重
   const seen = new Set<string>();
   const merged: RetrievalResult[] = [];
 
   for (const r of keywordResults) {
-    if (!seen.has(r.id)) {
-      seen.add(r.id);
-      merged.push(r);
-    }
+    if (!seen.has(r.id)) { seen.add(r.id); merged.push(r); }
   }
   for (const r of vectorResults) {
-    if (!seen.has(r.id)) {
-      seen.add(r.id);
-      merged.push(r);
-    }
+    if (!seen.has(r.id)) { seen.add(r.id); merged.push(r); }
   }
 
-  return merged.slice(0, topK);
+  return { results: merged.slice(0, topK) };
 }
 
-/**
- * 角色知识检索（仅关键词）
- */
 function searchCharKnowledge(
   query: string,
   keywords: string[],
   topK: number
-): RetrievalResult[] {
+): { results: RetrievalResult[] } {
   const characterId = getCurrentCharacterId();
-  if (!characterId) return [];
+  if (!characterId) return { results: [] };
 
   const effectiveTerms = keywords.length > 0 ? keywords : (query.length >= 2 ? [query] : []);
 
@@ -308,132 +295,122 @@ function searchCharKnowledge(
     logDb.insert({ id: uuidv4(), level: 'warn', category: 'retrieval', content: `Character knowledge search failed: ${error}`, createdAt: now() });
   }
 
-  return charResults
-    .filter(r => r.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, topK);
+  return {
+    results: charResults
+      .filter(r => r.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, topK)
+  };
 }
 
-/**
- * 格式化检索结果
- */
-function formatRetrievalContext(results: RetrievalResult[]): string {
-  if (results.length === 0) return '（无相关检索结果）';
+// ========== Tool Handler 实现 ==========
 
-  return results
-    .map(r => {
-      let label = `[${r.source}]`;
+async function handleSearchMemory(params: Record<string, unknown>): Promise<string> {
+  const query = (params.query as string) || '';
+  if (!query) return '（查询内容为空）';
 
-      if (r.source === 'memory' && r.metadata.granularity) {
-        const period = r.metadata.periodStart && r.metadata.periodEnd
-          ? `${formatDate(r.metadata.periodStart)}~${formatDate(r.metadata.periodEnd)}`
-          : '';
-        label = `[${r.metadata.granularity}${period ? ' ' + period : ''}]`;
-      } else if (r.source === 'knowledge' && r.metadata.category) {
-        label = `[${r.metadata.category}]`;
-      }
+  const keywords = (params.keywords as { direct?: string[] })?.direct || [];
+  const timeRange = params.timeRange as { start?: string; end?: string } | undefined;
+  const limit = Math.max(1, (params.limit as number) || 10);
 
-      const stateSuffix = r.metadata.userState ? `（此时段用户状态: ${r.metadata.userState}）` : '';
-      return `${label} ${r.content}${stateSuffix} (score: ${r.score.toFixed(3)})`;
-    })
-    .join('\n');
-}
-
-function formatDate(isoString: string): string {
-  const d = new Date(isoString);
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-}
-
-/**
- * 执行检索 — Skill 入口函数
- */
-export async function search(params: SearchParams): Promise<string> {
   const startTime = Date.now();
 
-  // 兼容嵌套参数结构 {action, params}
-  const actualParams = 'params' in params && typeof params.params === 'object'
-    ? params.params as SearchParams
-    : params;
+  const { results } = await searchMemories(query, keywords, timeRange, limit);
 
-  const {
-    query,
-    keywords,
-    timeRange,
-    limit = 10
-  } = actualParams;
+  // 前3条富化
+  const enrichedResults = results.slice(0, 3).map(r => ({
+    ...r,
+    content: enrichMemoryWithCoarser(
+      r,
+      timeRange?.start ? new Date(timeRange.start) : undefined,
+      timeRange?.end ? new Date(timeRange.end) : undefined
+    )
+  }));
 
-  try {
-    const queryStr = typeof query === 'string' ? query : '';
-    if (!queryStr) {
-      return '（查询内容为空）';
-    }
+  const finalResults = [...enrichedResults, ...results.slice(3)];
+  const formatted = formatRetrievalContext(finalResults, '记忆');
+  const searchTime = Date.now() - startTime;
 
-    const k = Math.max(1, Math.floor(limit / 2));
-    const keywordList = keywords?.direct || [];
-
-    // 三种来源各自独立容错，一个源失败不影响其他源
-    let memoryResults: RetrievalResult[] = [];
-    let knowledgeResults: RetrievalResult[] = [];
-    let charResults: RetrievalResult[] = [];
-
-    try {
-      memoryResults = await searchMemories(queryStr, keywordList, timeRange, k);
-    } catch (error) {
-      logDb.insert({ id: uuidv4(), level: 'error', category: 'retrieval', content: `Memory search crashed: ${error}`, createdAt: now() });
-    }
-
-    try {
-      knowledgeResults = await searchKnowledge(queryStr, keywordList, k);
-    } catch (error) {
-      logDb.insert({ id: uuidv4(), level: 'error', category: 'retrieval', content: `Knowledge search crashed: ${error}`, createdAt: now() });
-    }
-
-    try {
-      charResults = searchCharKnowledge(queryStr, keywordList, k);
-    } catch (error) {
-      logDb.insert({ id: uuidv4(), level: 'error', category: 'retrieval', content: `Character knowledge search crashed: ${error}`, createdAt: now() });
-    }
-
-    // 对记忆进行富化（前3条）
-    const enrichedMemoryResults = memoryResults.slice(0, 3).map(r => ({
-      ...r,
-      content: enrichMemoryWithCoarser(r, timeRange?.start ? new Date(timeRange.start) : undefined, timeRange?.end ? new Date(timeRange.end) : undefined)
-    }));
-
-    // 合并结果（去重）
-    // 优先级：关键词检索结果 > 向量检索结果
-    const combined = new Map<string, RetrievalResult>();
-
-    for (const r of enrichedMemoryResults) {
-      if (!combined.has(r.id)) combined.set(r.id, r);
-    }
-    for (const r of memoryResults.slice(3)) {
-      if (!combined.has(r.id)) combined.set(r.id, r);
-    }
-    for (const r of knowledgeResults) {
-      if (!combined.has(r.id)) combined.set(r.id, r);
-    }
-    for (const r of charResults) {
-      if (!combined.has(r.id)) combined.set(r.id, r);
-    }
-
-    const finalResults = Array.from(combined.values()).slice(0, limit);
-
-    const formatted = formatRetrievalContext(finalResults);
-    const searchTime = Date.now() - startTime;
-
-    return `[检索结果] 找到: ${finalResults.length} 条 | 耗时: ${searchTime}ms\n\n${formatted}`;
-
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'agent', content: `SearchSkill failed: ${error}`, createdAt: now() });
-    return `[检索出错] ${errorMsg}`;
-  }
+  return `[记忆检索] 找到: ${finalResults.length} 条 | 耗时: ${searchTime}ms\n\n${formatted}`;
 }
 
-export type { SearchParams };
+async function handleSearchKnowledge(params: Record<string, unknown>): Promise<string> {
+  const query = (params.query as string) || '';
+  if (!query) return '（查询内容为空）';
 
-// ========== Tool 注册（由 read_skill 动态加载） ==========
+  const keywords = (params.keywords as { direct?: string[] })?.direct || [];
+  const limit = Math.max(1, (params.limit as number) || 10);
+
+  const startTime = Date.now();
+
+  const { results } = await searchKnowledge(query, keywords, limit);
+  const formatted = formatRetrievalContext(results, '资料');
+  const searchTime = Date.now() - startTime;
+
+  return `[资料库检索] 找到: ${results.length} 条 | 耗时: ${searchTime}ms\n\n${formatted}`;
+}
+
+async function handleSearchCharacter(params: Record<string, unknown>): Promise<string> {
+  const keywords = (params.keywords as { direct?: string[] })?.direct || [];
+  if (keywords.length === 0) return '（关键词为空 — search_character 仅支持关键词检索，请提供 keywords.direct）';
+
+  const query = (params.query as string) || '';
+  const limit = Math.max(1, (params.limit as number) || 10);
+
+  const startTime = Date.now();
+
+  const { results } = searchCharKnowledge(query, keywords, limit);
+  const formatted = formatRetrievalContext(results, '角色知识');
+  const searchTime = Date.now() - startTime;
+
+  return `[角色知识检索] 找到: ${results.length} 条 | 耗时: ${searchTime}ms\n\n${formatted}`;
+}
+
+// ========== 统一检索（内部 pre-retrieval 用，非 tool） ==========
+
+export async function search(params: Record<string, unknown>): Promise<string> {
+  const query = (params.query as string) || '';
+  if (!query) return '（查询内容为空）';
+
+  const keywords = (params.keywords as { direct?: string[] })?.direct || [];
+  const timeRange = params.timeRange as { start?: string; end?: string } | undefined;
+  const limit = Math.max(1, (params.limit as number) || 10);
+  const k = Math.max(1, Math.floor(limit / 2));
+
+  const startTime = Date.now();
+
+  // 三个来源各自独立容错
+  const [memResult, kbResult, charResult] = await Promise.all([
+    searchMemories(query, keywords, timeRange, k).catch(() => ({ results: [] as RetrievalResult[] })),
+    searchKnowledge(query, keywords, k).catch(() => ({ results: [] as RetrievalResult[] })),
+    Promise.resolve(searchCharKnowledge(query, keywords, k))
+  ]);
+
+  // 记忆富化（前3条）
+  const enrichedMems = memResult.results.slice(0, 3).map(r => ({
+    ...r,
+    content: enrichMemoryWithCoarser(
+      r,
+      timeRange?.start ? new Date(timeRange.start) : undefined,
+      timeRange?.end ? new Date(timeRange.end) : undefined
+    )
+  }));
+
+  // 合并去重
+  const combined = new Map<string, RetrievalResult>();
+  for (const r of enrichedMems) combined.set(r.id, r);
+  for (const r of memResult.results.slice(3)) { if (!combined.has(r.id)) combined.set(r.id, r); }
+  for (const r of kbResult.results) { if (!combined.has(r.id)) combined.set(r.id, r); }
+  for (const r of charResult.results) { if (!combined.has(r.id)) combined.set(r.id, r); }
+
+  const finalResults = Array.from(combined.values()).slice(0, limit);
+  const formatted = formatRetrievalContext(finalResults, '结果');
+  const searchTime = Date.now() - startTime;
+
+  return `[检索结果] 找到: ${finalResults.length} 条 | 耗时: ${searchTime}ms\n\n${formatted}`;
+}
+
+// ========== Tool 注册 ==========
 
 import type { ToolDef } from '../../types/index.js';
 
@@ -441,35 +418,75 @@ export const toolDefs: ToolDef[] = [
   {
     type: 'function',
     function: {
-      name: 'search',
-      description: '在长期记忆和本地资料库中检索相关信息。不要使用相似的查询重复搜索，一次搜索不理想应立即停止。',
+      name: 'search_memory',
+      description: '检索长期记忆。适用于用户提到过去的事、想回顾对话历史、询问"我之前说过..."等场景。支持时间范围过滤，结果自动附带更粗粒度记忆作为上下文。',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: '查询文本（用于向量检索的整句，可以是问题或陈述）' },
+          query: { type: 'string', description: '查询文本（用于向量检索的整句）' },
           keywords: {
             type: 'object',
-            properties: { direct: { type: 'array', items: { type: 'string' }, description: '直接关键词列表' } },
+            properties: { direct: { type: 'array', items: { type: 'string' }, description: '精确关键词列表' } },
             description: '关键词过滤（可选）'
           },
           timeRange: {
             type: 'object',
             properties: {
-              start: { type: 'string', description: '开始日期，格式 YYYY-MM-DD' },
-              end: { type: 'string', description: '结束日期，格式 YYYY-MM-DD' }
+              start: { type: 'string', description: '开始日期 YYYY-MM-DD' },
+              end: { type: 'string', description: '结束日期 YYYY-MM-DD' }
             },
             description: '时间范围筛选（可选）'
           },
-          limit: { type: 'number', description: '返回结果数量，默认10' }
+          limit: { type: 'number', description: '返回数量，默认10' }
         },
         required: ['query']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_knowledge',
+      description: '检索本地资料库。适用于查找用户自行添加的资料、文档、笔记等结构化知识条目。',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: '查询文本（用于向量检索的整句）' },
+          keywords: {
+            type: 'object',
+            properties: { direct: { type: 'array', items: { type: 'string' }, description: '精确关键词列表' } },
+            description: '关键词过滤（可选）'
+          },
+          limit: { type: 'number', description: '返回数量，默认10' }
+        },
+        required: ['query']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_character',
+      description: '检索角色知识库（仅关键词检索）。适用于需要了解角色设定、背景故事、性格特征、人物关系等角色相关信息时使用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          keywords: {
+            type: 'object',
+            properties: { direct: { type: 'array', items: { type: 'string' }, description: '精确关键词列表（至少一个）' } },
+            description: '关键词（必填）'
+          },
+          query: { type: 'string', description: '补充查询文本（可选）' },
+          limit: { type: 'number', description: '返回数量，默认10' }
+        },
+        required: ['keywords']
       }
     }
   }
 ];
 
 export const toolHandlers: Record<string, (params: Record<string, unknown>) => Promise<string>> = {
-  search: async (params: Record<string, unknown>) => {
-    return await search(params as unknown as SearchParams);
-  }
+  search_memory: handleSearchMemory,
+  search_knowledge: handleSearchKnowledge,
+  search_character: handleSearchCharacter,
 };

@@ -23,7 +23,7 @@ import { buildReActMessages, type ChatMessage } from './prompts.js';
 import { parseSegment, emitSegment } from './segment-utils.js';
 import { getDialogueStats, getRecentDialoguesText } from './dialogue-stats.js';
 import { toolRegistry } from './tool-registry.js';
-import { getDisclosedSkills, discloseSkill } from './tools.js';
+import { discloseSkill } from './tools.js';
 
 class UnifiedAgent {
   private character: CharacterConfig;
@@ -108,10 +108,6 @@ class UnifiedAgent {
     const memoryContext = memoryManager.buildRecentContext();
     const combinedContext = [memoryContext, recentText].filter(Boolean).join('\n\n');
 
-    const cachedNames = skillEngine.getCachedSkillNames();
-    const disclosedNames = getDisclosedSkills();
-    const disclosedSkillNames = [...new Set([...cachedNames, ...disclosedNames])];
-
     const messages: ChatMessage[] = buildReActMessages({
       userInput,
       retrievalResults: retrievalContext,
@@ -128,8 +124,7 @@ class UnifiedAgent {
       availableActions,
       speechLanguage,
       subtitleLanguage,
-      userProfile: userProfileManager.getProfileContext(),
-      disclosedSkillNames
+      userProfile: userProfileManager.getProfileContext()
     });
 
     // ========== Phase 3: ReAct Loop ==========
@@ -247,25 +242,29 @@ class UnifiedAgent {
       // If no tool calls, done
       if (toolCallsThisRound.size === 0) break;
 
-      // Execute tools and append results
-      for (const [toolCallId, toolCall] of toolCallsThisRound) {
-        let params: Record<string, unknown> = {};
-        if (toolCall.arguments) {
-          try { params = JSON.parse(toolCall.arguments); } catch { params = { query: toolCall.arguments }; }
-        }
+      // Execute tools in parallel and append results
+      const toolEntries = Array.from(toolCallsThisRound.entries());
+      totalToolCalls += toolEntries.length;
 
-        totalToolCalls++;
+      const toolResults = await Promise.all(
+        toolEntries.map(async ([toolCallId, toolCall]) => {
+          let params: Record<string, unknown> = {};
+          if (toolCall.arguments) {
+            try { params = JSON.parse(toolCall.arguments); } catch { params = { query: toolCall.arguments }; }
+          }
+          const toolResult = await toolRegistry.execute(toolCall.name, params);
+          logDb.insert({
+            id: uuidv4(),
+            level: 'debug',
+            category: 'agent',
+            content: `[ReAct tool: ${toolCall.name}]\n${toolResult.slice(0, 500)}`,
+            createdAt: now()
+          });
+          return { toolCallId, toolResult };
+        })
+      );
 
-        const toolResult = await toolRegistry.execute(toolCall.name, params);
-
-        logDb.insert({
-          id: uuidv4(),
-          level: 'debug',
-          category: 'agent',
-          content: `[ReAct tool: ${toolCall.name}]\n${toolResult.slice(0, 500)}`,
-          createdAt: now()
-        });
-
+      for (const { toolCallId, toolResult } of toolResults) {
         messages.push({
           role: 'tool' as const,
           tool_call_id: toolCallId,
