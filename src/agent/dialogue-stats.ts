@@ -37,14 +37,29 @@ export function getDialogueStats(): string {
     ? Math.floor((nowTime.getTime() - lastDialogue.getTime()) / 60000)
     : null;
 
+  const elapsedDays = firstTime
+    ? Math.ceil((nowTime.getTime() - firstTime.getTime()) / 86400000)
+    : 0;
+
   let stats = `## 对话统计
-对话统计记录了${getCharacterName()}与用户的互动频次，如果近期互动相比之前较少，可以适当向用户表达对他们的思念和关心。
-- 总对话轮次：${totalCount}${formatDailyAvg(totalCount, Infinity, firstTime ?? nowTime, firstTime)}
-- 最近一年：${yearCount}${formatDailyAvg(yearCount, 365, oneYearAgo, firstTime)}
-- 最近一季：${seasonCount}${formatDailyAvg(seasonCount, 90, oneSeasonAgo, firstTime)}
-- 最近一月：${monthCount}${formatDailyAvg(monthCount, 30, oneMonthAgo, firstTime)}
-- 最近一周：${weekCount}${formatDailyAvg(weekCount, 7, oneWeekAgo, firstTime)}
-- 最近一天：${dayCount}`;
+对话统计记录了${getCharacterName()}与用户的互动频次，如果近期互动相比之前较少，可以适当向用户表达对他们的思念和关心。`;
+
+  if (elapsedDays >= 365) {
+    stats += `\n- 总对话轮次：${totalCount}${formatDailyAvg(totalCount, Infinity, firstTime ?? nowTime, firstTime)}`;
+  }
+  if (elapsedDays >= 90) {
+    stats += `\n- 最近一年：${yearCount}${formatDailyAvg(yearCount, 365, oneYearAgo, firstTime)}`;
+  }
+  if (elapsedDays >= 30) {
+    stats += `\n- 最近一季：${seasonCount}${formatDailyAvg(seasonCount, 90, oneSeasonAgo, firstTime)}`;
+  }
+  if (elapsedDays >= 7) {
+    stats += `\n- 最近一月：${monthCount}${formatDailyAvg(monthCount, 30, oneMonthAgo, firstTime)}`;
+  }
+  if (elapsedDays >= 1) {
+    stats += `\n- 最近一周：${weekCount}${formatDailyAvg(weekCount, 7, oneWeekAgo, firstTime)}`;
+  }
+  stats += `\n- 最近一天：${dayCount}`;
 
   if (timeSinceLast !== null) {
     if (timeSinceLast < 1) stats += `\n- 距离上次对话：刚刚`;
@@ -65,6 +80,8 @@ export interface RecentDialoguesOptions {
   excludeProactive?: boolean;
   /** 只返回此时间之后的对话（用于和 memory 金字塔去重） */
   sinceDate?: Date;
+  /** 仅返回用户发言，每条一行（用于预检索 keyword 提取） */
+  userOnly?: boolean;
 }
 
 export function getRecentDialoguesText(
@@ -83,6 +100,14 @@ export function getRecentDialoguesText(
 
   const proactiveLabel = '## 你最近主动说过的话（绝对不要重复这些话题）：';
   const dialogueLabel = '## 最近对话：';
+
+  if (options?.userOnly) {
+    return recentDialogues
+      .filter(d => d.createdAt >= cutoff && d.userContent !== '[Proactive]')
+      .reverse()
+      .map(d => d.userContent)
+      .join('\n');
+  }
 
   if (options?.excludeProactive) {
     const proactiveLines: string[] = [];

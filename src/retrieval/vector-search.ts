@@ -20,7 +20,8 @@ export interface VectorSearchResult {
  */
 export async function vectorSearch(
   query: string,
-  topK: number = 20
+  topK: number = 20,
+  queryEmbedding?: number[] // 允许外部传入预计算的查询 embedding，避免重复计算（如在 searchMemories/searchKnowledge 中调用时）
 ): Promise<VectorSearchResult[]> {
   const start = Date.now();
 
@@ -33,8 +34,6 @@ export async function vectorSearch(
 
   for (const m of memoriesWithEmbedding) {
     if (m.embedding) {
-      // 重要：Buffer 从 DB 检索后 length=字节数，但 new Float32Array(buffer) 会把 length 当元素数
-      // 正确方式：使用 buffer, byteOffset, length/4
       const embedding = new Float32Array(
         m.embedding.buffer,
         m.embedding.byteOffset,
@@ -76,15 +75,14 @@ export async function vectorSearch(
     return [];
   }
 
-  // 调用 Python 服务编码查询向量
-  const queryEmbedding = await embeddingManager.encode(query);
+  const qEmb = queryEmbedding ?? await embeddingManager.encode(query);
 
   // 本地计算余弦相似度
   const scored = items.map(item => ({
     id: item.id,
     content: item.content,
     source: item.source,
-    score: embeddingManager.cosineSimilarity(queryEmbedding, item.embedding)
+    score: embeddingManager.cosineSimilarity(qEmb, item.embedding)
   }));
 
   // 按相似度降序排列，取 topK

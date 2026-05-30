@@ -12,6 +12,7 @@
  */
 
 import { vectorSearch } from '../../retrieval/vector-search.js';
+import { embeddingManager } from '../../embedding/manager.js';
 import { memoryDb, knowledgeDb, logDb, now } from '../../db/database.js';
 import { searchCharacterKnowledge, getCurrentCharacterId } from '../../character/knowledge.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -149,7 +150,8 @@ async function searchMemories(
   query: string,
   keywords: string[],
   timeRange: { start?: string; end?: string } | undefined,
-  topK: number
+  topK: number,
+  queryEmbedding?: number[]
 ): Promise<{ results: RetrievalResult[] }> {
   const startTime = timeRange?.start ? new Date(timeRange.start) : undefined;
   const endTime = timeRange?.end ? new Date(timeRange.end) : undefined;
@@ -157,7 +159,7 @@ async function searchMemories(
   // 向量检索
   let vectorResults: RetrievalResult[] = [];
   try {
-    const raw = await vectorSearch(query, topK);
+    const raw = await vectorSearch(query, topK, queryEmbedding);
     const filtered = raw.filter(r => r.source === 'memory');
     vectorResults = filtered.map(r => {
       const mem = memoryDb.getAll().find(m => m.id === r.id);
@@ -222,12 +224,13 @@ async function searchMemories(
 async function searchKnowledge(
   query: string,
   keywords: string[],
-  topK: number
+  topK: number,
+  queryEmbedding?: number[]
 ): Promise<{ results: RetrievalResult[] }> {
   // 向量检索
   let vectorResults: RetrievalResult[] = [];
   try {
-    const raw = await vectorSearch(query, topK);
+    const raw = await vectorSearch(query, topK, queryEmbedding);
     const filtered = raw.filter(r => r.source === 'knowledge');
     vectorResults = filtered.map(r => {
       const kb = knowledgeDb.getAll().find(k => k.id === r.id);
@@ -368,17 +371,26 @@ export async function search(params: Record<string, unknown>): Promise<string> {
   const query = (params.query as string) || '';
   if (!query) return '（查询内容为空）';
 
-  const keywords = (params.keywords as { direct?: string[] })?.direct || [];
+  // 预检索 query 是用户消息按换行拼接，每条用户消息作为一个语义 keyword
+  const keywords = query.split('\n').filter(k => k.trim());
   const timeRange = params.timeRange as { start?: string; end?: string } | undefined;
   const limit = Math.max(1, (params.limit as number) || 10);
   const k = Math.max(1, Math.floor(limit / 2));
 
   const startTime = Date.now();
 
+  // 预编码：只编码一次，避免 memories/knowledge 各编码一次（两次并发打满 Python 端 CPU）
+  let queryEmbedding: number[] | undefined;
+  try {
+    queryEmbedding = await embeddingManager.encode(query);
+  } catch {
+    // 编码失败不阻塞，降级为纯关键词检索
+  }
+
   // 三个来源各自独立容错
   const [memResult, kbResult, charResult] = await Promise.all([
-    searchMemories(query, keywords, timeRange, k).catch(() => ({ results: [] as RetrievalResult[] })),
-    searchKnowledge(query, keywords, k).catch(() => ({ results: [] as RetrievalResult[] })),
+    searchMemories(query, keywords, timeRange, k, queryEmbedding).catch(() => ({ results: [] as RetrievalResult[] })),
+    searchKnowledge(query, keywords, k, queryEmbedding).catch(() => ({ results: [] as RetrievalResult[] })),
     Promise.resolve(searchCharKnowledge(keywords, k))
   ]);
 

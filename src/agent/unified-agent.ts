@@ -20,7 +20,7 @@ import { loadDefaultCharacter, getAvailableActions, type CharacterConfig } from 
 import { userProfileManager } from '../user/profile.js';
 
 import { buildReActMessages, type ChatMessage } from './prompts.js';
-import { parseSegment, emitSegment } from './segment-utils.js';
+import { parseSegment, emitSegment, extractAllSegments } from './segment-utils.js';
 import { getDialogueStats, getRecentDialoguesText } from './dialogue-stats.js';
 import { toolRegistry } from './tool-registry.js';
 import { discloseSkill } from './tools.js';
@@ -63,7 +63,7 @@ class UnifiedAgent {
     const recentSkillsContext = await skillEngine.getRecentSkillsContext();
 
     // ========== Phase 1: Pre-retrieval ==========
-    const recentDialoguesForRetrieval = getRecentDialoguesText(5);
+    const recentDialoguesForRetrieval = getRecentDialoguesText(4, 1, { userOnly: true });
     const retrievalQuery = recentDialoguesForRetrieval
       ? recentDialoguesForRetrieval + '\n' + userInput
       : userInput;
@@ -215,6 +215,35 @@ class UnifiedAgent {
             this.character.id, onSSE
           );
           allVoiceTexts.push(seg.voice);
+        }
+      }
+
+      // Fallback: if line-by-line parsing yielded nothing, try full-text extraction
+      if (allVoiceTexts.length === 0 && textDeltaThisRound.trim()) {
+        const fallbackSegs = extractAllSegments(textDeltaThisRound);
+        for (const seg of fallbackSegs) {
+          sentenceIndex = await emitSegment(
+            seg, sentenceIndex, speechLanguage, subtitleLanguage,
+            this.character.id, onSSE
+          );
+          allVoiceTexts.push(seg.voice);
+        }
+        if (fallbackSegs.length > 0) {
+          logDb.insert({
+            id: uuidv4(),
+            level: 'warn',
+            category: 'agent',
+            content: `[Format fallback] Line-by-line parser yielded 0 segments, full-text extraction recovered ${fallbackSegs.length}. Raw text (first 500): ${textDeltaThisRound.slice(0, 500)}`,
+            createdAt: now()
+          });
+        } else if (textDeltaThisRound.trim()) {
+          logDb.insert({
+            id: uuidv4(),
+            level: 'error',
+            category: 'agent',
+            content: `[Format error] Model output zero parseable segments. Raw text (first 500): ${textDeltaThisRound.slice(0, 500)}`,
+            createdAt: now()
+          });
         }
       }
 

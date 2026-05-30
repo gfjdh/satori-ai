@@ -7,24 +7,97 @@ import { SSEMessage } from '../types/index.js';
 import { synthesizeStream } from '../tts/client.js';
 
 /**
+ * 尝试修复常见的 LLM JSON 格式错误
+ */
+function repairJSON(text: string): string {
+  let s = text.trim();
+
+  // 1. 去掉 markdown 代码块包裹
+  if (s.startsWith('```')) {
+    s = s.replace(/^```\w*\s*\n?/, '').replace(/\n?```\s*$/, '');
+  }
+
+  // 2. 去掉 JSON 前后的非 JSON 文本（找到第一个 { 和最后一个 }）
+  const firstBrace = s.indexOf('{');
+  const lastBrace = s.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    s = s.slice(firstBrace, lastBrace + 1);
+  }
+
+  // 3. 修复尾逗号
+  s = s.replace(/,(\s*[}\]])/g, '$1');
+
+  return s;
+}
+
+/**
+ * 从任意文本中提取所有 JSON 对象（非行级，支持混合文本）
+ */
+function extractJSONObjects(text: string): string[] {
+  const result: string[] = [];
+  // 先去掉 markdown 代码块
+  const cleaned = text.replace(/```\w*\n?/g, '').replace(/```/g, '');
+  // 用栈匹配 { } 提取完整 JSON 对象
+  let i = 0;
+  while (i < cleaned.length) {
+    if (cleaned[i] !== '{') { i++; continue; }
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    const start = i;
+    for (; i < cleaned.length; i++) {
+      const ch = cleaned[i];
+      if (escaped) { escaped = false; continue; }
+      if (ch === '\\') { escaped = true; continue; }
+      if (ch === '"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (ch === '{') { depth++; continue; }
+      if (ch === '}') { depth--; if (depth === 0) { i++; break; } }
+    }
+    if (depth === 0) {
+      result.push(cleaned.slice(start, i));
+    }
+  }
+  return result;
+}
+
+/**
  * 解析单行 JSON 为 Segment
  */
 export function parseSegment(line: string): Segment | null {
-  try {
-    const obj = JSON.parse(line);
-    if (obj.emotion && obj.voice !== undefined) {
-      const action = obj.action || '';
-      return {
-        emotion: obj.emotion,
-        action: action,
-        voice: obj.voice,
-        subtitle: obj.subtitle
-      };
+  let repaired = repairJSON(line);
+  if (!repaired || !repaired.startsWith('{')) return null;
+
+  const candidates = extractJSONObjects(repaired);
+  for (const candidate of candidates) {
+    try {
+      const obj = JSON.parse(candidate);
+      if (obj.emotion && obj.voice !== undefined) {
+        return {
+          emotion: obj.emotion,
+          action: obj.action || '',
+          voice: obj.voice,
+          subtitle: obj.subtitle
+        };
+      }
+    } catch {
+      // try next candidate
     }
-  } catch {
-    // ignore
   }
   return null;
+}
+
+/**
+ * 从一段完整文本中提取所有 Segment（兜底用）
+ */
+export function extractAllSegments(text: string): Segment[] {
+  const segments: Segment[] = [];
+  const objects = extractJSONObjects(text);
+  for (const objStr of objects) {
+    const seg = parseSegment(objStr);
+    if (seg) segments.push(seg);
+  }
+  return segments;
 }
 
 /**
@@ -64,6 +137,12 @@ export async function emitSegment(
   characterId: string,
   onSSE?: (message: SSEMessage) => void
 ): Promise<number> {
+  const subtitle = seg.subtitle
+    ? /[，。！？、；：…—,\.!\?;:\-]$/.test(seg.subtitle)
+      ? seg.subtitle
+      : seg.subtitle + '，'
+    : undefined;
+
   onSSE?.({
     type: 'voice',
     data: {
@@ -81,18 +160,18 @@ export async function emitSegment(
       data: { audio: audioBuffer.toString('base64'), action: seg.action, sentenceIndex }
     });
 
-    if (seg.subtitle && speechLanguage !== subtitleLanguage) {
+    if (subtitle && speechLanguage !== subtitleLanguage) {
       onSSE?.({
         type: 'subtitle',
-        data: { text: seg.subtitle, sentenceIndex }
+        data: { text: subtitle, sentenceIndex }
       });
     }
   } catch {
     // TTS 失败不阻塞，字幕仍需发送
-    if (seg.subtitle && speechLanguage !== subtitleLanguage) {
+    if (subtitle && speechLanguage !== subtitleLanguage) {
       onSSE?.({
         type: 'subtitle',
-        data: { text: seg.subtitle, sentenceIndex }
+        data: { text: subtitle, sentenceIndex }
       });
     }
   }
