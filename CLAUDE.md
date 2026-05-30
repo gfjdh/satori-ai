@@ -20,11 +20,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```
 satori-ai/
 ├── src/                      # TypeScript后端源码
-│   ├── agent/               # Agent模块（analyzer分析、polisher润色）
-│   ├── api/                 # LLM API封装
+│   ├── agent/               # Agent模块（unified-agent ReAct单Agent、tool-registry、tools Skill桥接）
+│   ├── api/                 # LLM API封装（支持原生function calling）
 │   ├── character/           # 角色卡加载
 │   ├── db/                  # SQLite数据库
+│   ├── embedding/           # 嵌入向量管理
 │   ├── memory/              # 记忆管理
+│   ├── retrieval/           # 检索系统（vector/bm25/reranker）
 │   ├── skills/              # 内置Skill（search、image-analysis）
 │   ├── state/               # 状态管理（好感度/情绪）
 │   ├── tts/                 # TTS客户端
@@ -56,11 +58,13 @@ satori-ai/
 
 **状态管理器** (`src/state/manager.ts`)：中央协调器，维护多维好感度和情绪状态，协调Agent间通信。情绪随时间自动回归平静。
 
-**分析Agent** (`src/agent/analyzer.ts`)：多模态模型接入，核心职责是上下文管理和任务分解。带Loop检索（最多6轮），LLM自行判断是否调用工具。
+**Unified ReAct Agent** (`src/agent/unified-agent.ts`)：v6单Agent架构（Polisher+Analyzer合并），原生function calling驱动工具调用。简单对话1次LLM调用，复杂对话2次（tool call → text generation）。ReAct循环最多6轮迭代。
 
-**PolisherAgent** (`src/agent/polisher.ts`)：润色Agent，SSE流式输出text和action事件，控制对话风格和Live2D动作。
+**ToolRegistry** (`src/agent/tool-registry.ts`)：可插拔工具注册中心，解耦Agent与Skill。Skill通过桥接函数注册为Tool，外部插件可直接register()/unregister()。
 
-**Skill系统** (`src/skills/engine.ts`)：Markdown格式操作说明书，位于`skills/<skill-name>/SKILL.md`。启动时仅加载名称和描述，任务匹配时按需加载完整指令。
+**渐进式披露** (`src/agent/tools.ts`)：Skill→Tool桥接，永久可见Skill列表（名称+简介），动态披露工具完整参数schema（缓存预加载+触发词匹配+read_skill显式加载）。
+
+**Skill系统** (`src/skills/engine.ts`)：Markdown格式操作说明书，位于`src/skills/<skill-name>/SKILL.md`。启动时仅加载名称和描述，任务匹配时按需加载完整指令。
 
 **记忆系统** (`src/memory/manager.ts`)：SQLite存储，分级结构（年→季→月→周→日→话题七级）。LLM自动识别话题切换，用户画像存放在JSON文件中。
 

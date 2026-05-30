@@ -14,13 +14,14 @@
   - `src/retrieval/bm25.ts` - BM25关键词检索
   - `src/retrieval/joint-search.ts` - 向量+关键词联合检索
   - `src/retrieval/reranker.ts` - 结果重排序
-- **Agent 系统** ✅
-  - `src/agent/unified-agent.ts` - 统一Agent，整合分析+润色
-  - `src/agent/analysis-loop.ts` - 分析Loop（最多6轮迭代）
-  - `src/agent/polisher.ts` - 润色Agent，生成带动作表情的回复，SSE流式输出
+- **Agent 系统** ✅ (v6 ReAct 单Agent架构)
+  - `src/agent/unified-agent.ts` - Unified ReAct Agent，单Agent+原生function calling，简单对话1次LLM调用，复杂对话2次
+  - `src/agent/tool-registry.ts` - 可插拔工具注册中心，解耦Agent与Skill
+  - `src/agent/tools.ts` - Skill→Tool桥接，渐进式披露（缓存预加载+触发词匹配+read_skill）
   - `src/agent/prompts.ts` - 提示词模板
-  - `src/agent/segment-utils.ts` - 文本分段工具
-  - `src/agent/dialogue-stats.ts` - 对话统计
+  - `src/agent/segment-utils.ts` - 文本分段/解析工具
+  - `src/agent/dialogue-stats.ts` - 对话统计（支持用户发言过滤和时间限制）
+  - `src/agent/proactive-agent.ts` - 主动交互Agent
 - **LLM API 层** (`src/api/llm.ts`) - 支持自定义BaseURL和Model，流式输出
 - **状态管理器** (`src/state/manager.ts`) - 多维好感度/情绪系统，角色卡动态配置，情绪自动回归
 - **记忆管理器** (`src/memory/manager.ts`) - 分级存储（年/季/月/周/日/话题七级），LLM自动话题识别，智能召回，用户状态提取
@@ -30,8 +31,8 @@
   - `src/character/knowledge.ts` - 知识库管理
 - **TTS 客户端** (`src/tts/client.ts`) - 语音合成接口
 - **Skill 引擎** (`src/skills/engine.ts`) - Markdown格式Skill执行，按需加载
-  - 内置 `skills/search` - 记忆/资料库检索Skill
-  - 内置 `skills/image-analysis` - 屏幕分析Skill
+  - 内置 `src/skills/search` - 记忆/资料库检索Skill
+  - 内置 `src/skills/image-analysis` - 屏幕分析Skill
 
 #### WebUI (Vue3 + TypeScript) 🔄 进行中
 - `/` - 欢迎页 ✅
@@ -202,14 +203,14 @@ cd webui && npm run dev
 ```
 satori-ai/
 ├── src/                    # TypeScript后端源码
-│   ├── agent/             # Agent模块（unified-agent/analysis-loop/polisher）
-│   ├── api/               # LLM API封装
+│   ├── agent/             # Agent模块（unified-agent/tool-registry/tools/prompts/segment-utils/dialogue-stats/proactive-agent）
+│   ├── api/               # LLM API封装（支持原生function calling）
 │   ├── character/         # 角色卡加载
 │   ├── db/                # SQLite数据库
 │   ├── embedding/         # 嵌入向量管理
 │   ├── memory/            # 记忆管理
-│   ├── retrieval/         # 检索系统（vector/bm25/joint/reranker）
-│   ├── skills/            # Skill定义（search、image-analysis）
+│   ├── retrieval/         # 检索系统（vector/bm25/reranker）
+│   ├── skills/            # 内置Skill（search、image-analysis）
 │   ├── state/             # 状态管理（好感度/情绪）
 │   ├── tts/               # TTS客户端
 │   ├── user/              # 用户画像
@@ -250,7 +251,7 @@ satori-ai/
 
 ### Skill扩展
 
-在 `skills/<skill-name>/SKILL.md` 添加Markdown格式指令即可扩展功能。
+在 `src/skills/<skill-name>/SKILL.md` 添加内置Skill，在 `skills/<skill-name>/SKILL.md` 添加用户扩展Skill。
 
 ## 许可证
 

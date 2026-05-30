@@ -50,14 +50,14 @@
     - 维护全局状态：好感度（多维）、情绪状态。
     - 负责心跳任务调度。
     - 协调各Agent之间的通信和数据流。
-- **分析Agent（接入多模态模型）**：✅ 已实现
-    - **核心职责**：上下文管理、复杂任务分解、工具调用。
-    - 工作流程：分析用户输入 -> LLM根据上下文自行决定是否调用工具（可能0个，可能多个）-> 调用对话润色Skill -> 生成回复。
-    - **工具调用决策**：由LLM根据上下文自行判断是否需要调用搜索、屏幕分析等工具。
-    - **带Loop的检索**：✅ 已实现（最多6轮迭代）
-    - **工具调用**：✅ Skill引擎已实现，支持搜索、图像分析等skill
+- **Unified ReAct Agent（v6 单Agent架构）**：✅ 已实现
+    - **核心职责**：上下文管理、工具调用（原生function calling）、对话生成。
+    - **架构**：Polisher + Analyzer 双Agent合并为单一ReAct循环，简单对话1次LLM调用，复杂对话2次（tool call → text generation）。
+    - **工作流程**：构建上下文 → LLM原生function calling决定工具调用 → 执行工具 → 生成回复（SSE流式输出text/action事件）。
+    - **ToolRegistry（工具注册中心）**：✅ 可插拔设计，解耦Agent与Skill。Skill通过桥接函数注册为Tool，外部插件可直接register()。
+    - **渐进式披露**：✅ 永久可见Skill列表（名称+简介），动态披露工具完整参数schema（缓存预加载+read_skill显式加载+触发词匹配）。
+    - **带Loop的检索**：✅ ReAct循环最多6轮工具调用迭代
     - **模型支持**：✅ 多模态模型配置已完成
-    - **回复输出**：✅ SSE流式输出，支持text/action事件类型
 
 ### 2.2 心跳任务 ✅
 系统每隔1分钟执行一次心跳任务，用于处理周期性工作：
@@ -75,12 +75,14 @@ Skill是教AI按固定流程做事的操作说明书，本质是Markdown文件�
 
 **Skill目录结构**：✅ 已定义
 ```
-skills/
+src/skills/                  # 内置Skill（随项目源码管理）
 └── <skill-name>/           # 技能文件夹（kebab-case小写）
     ├── SKILL.md            # 唯一必需文件（核心指令 + YAML frontmatter）
     ├── scripts/            # 可选：可执行代码
     ├── references/         # 可选：文档资料
     └── assets/             # 可选：模板、资源
+
+skills/                      # 用户扩展Skill目录（独立于源码）
 ```
 
 **SKILL.md格式**：✅ 已定义
