@@ -6,6 +6,7 @@
 
     const overlay = document.getElementById('settings-overlay');
     const toggle = document.getElementById('toggle-enabled');
+    const toggleStartupGreeting = document.getElementById('toggle-startup-greeting');
     const rangeMin = document.getElementById('range-min');
     const rangeMax = document.getElementById('range-max');
     const dispMin = document.getElementById('disp-min');
@@ -14,6 +15,7 @@
     const valMax = document.getElementById('val-max');
 
     let enabled = true;
+    let startupGreeting = true;
 
     function show() {
         loadConfig().then(function() {
@@ -31,7 +33,9 @@
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
             const cfg = await resp.json();
             enabled = cfg.enabled !== false;
+            startupGreeting = cfg.startupGreeting !== false;
             toggle.className = 'toggle' + (enabled ? ' on' : '');
+            toggleStartupGreeting.className = 'toggle' + (startupGreeting ? ' on' : '');
             rangeMin.value = cfg.minIntervalMinutes || 8;
             rangeMax.value = cfg.maxIntervalMinutes || 20;
             updateDisp();
@@ -56,7 +60,8 @@
                 body: JSON.stringify({
                     enabled: enabled,
                     minIntervalMinutes: minVal,
-                    maxIntervalMinutes: maxVal
+                    maxIntervalMinutes: maxVal,
+                    startupGreeting: startupGreeting
                 })
             });
             if (!resp.ok) {
@@ -88,6 +93,11 @@
     toggle.addEventListener('click', function() {
         enabled = !enabled;
         toggle.className = 'toggle' + (enabled ? ' on' : '');
+    });
+
+    toggleStartupGreeting.addEventListener('click', function() {
+        startupGreeting = !startupGreeting;
+        toggleStartupGreeting.className = 'toggle' + (startupGreeting ? ' on' : '');
     });
 
     rangeMin.addEventListener('input', updateDisp);

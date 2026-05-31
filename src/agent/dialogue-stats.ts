@@ -24,7 +24,7 @@ export function getDialogueStats(): string {
   const oneWeekAgo = new Date(nowTime.getTime() - 7 * 24 * 60 * 60 * 1000);
   const oneDayAgo = new Date(nowTime.getTime() - 24 * 60 * 60 * 1000);
 
-  const totalCount = dialogueDb.getTurnCount(characterId);
+  const totalCount = dialogueDb.getUserTurnCount(characterId);
   const yearCount = dialogueDb.getDialogueCountSince(oneYearAgo, characterId);
   const seasonCount = dialogueDb.getDialogueCountSince(oneSeasonAgo, characterId);
   const monthCount = dialogueDb.getDialogueCountSince(oneMonthAgo, characterId);

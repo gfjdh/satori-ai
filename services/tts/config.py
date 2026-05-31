@@ -10,7 +10,8 @@ class Config:
     """Global configuration singleton"""
 
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # 从 services/tts/config.py 往上三层到达项目根目录
+    PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
     # 预训练模型路径（写死）
     PRETRAINED_MODELS_DIR = os.path.join(BASE_DIR, "pretrained_models")

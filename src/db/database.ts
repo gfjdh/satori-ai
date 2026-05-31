@@ -185,22 +185,35 @@ export const dialogueDb = {
 
   getDialogueCountSince(date: Date, characterId: string): number {
     const stmt = db.prepare(`
-      SELECT COUNT(*) as count FROM dialogues WHERE character_id = ? AND created_at >= ?
+      SELECT COUNT(*) as count FROM dialogues
+      WHERE character_id = ? AND created_at >= ? AND user_content != '[Proactive]'
     `);
     const result = stmt.get(characterId, date.toISOString()) as { count: number };
     return result.count;
   },
 
   getFirstDialogueTime(characterId: string): Date | null {
-    const stmt = db.prepare('SELECT created_at FROM dialogues WHERE character_id = ? ORDER BY created_at ASC LIMIT 1');
+    const stmt = db.prepare(
+      'SELECT created_at FROM dialogues WHERE character_id = ? AND user_content != \'[Proactive]\' ORDER BY created_at ASC LIMIT 1'
+    );
     const row = stmt.get(characterId) as { created_at: string } | undefined;
     return row ? new Date(row.created_at) : null;
   },
 
   getLastDialogueTime(characterId: string): Date | null {
-    const stmt = db.prepare('SELECT created_at FROM dialogues WHERE character_id = ? ORDER BY created_at DESC LIMIT 1');
+    const stmt = db.prepare(
+      'SELECT created_at FROM dialogues WHERE character_id = ? AND user_content != \'[Proactive]\' ORDER BY created_at DESC LIMIT 1'
+    );
     const row = stmt.get(characterId) as { created_at: string } | undefined;
     return row ? new Date(row.created_at) : null;
+  },
+
+  getUserTurnCount(characterId: string): number {
+    const stmt = db.prepare(
+      'SELECT COUNT(*) as count FROM dialogues WHERE character_id = ? AND user_content != \'[Proactive]\''
+    );
+    const result = stmt.get(characterId) as { count: number };
+    return result.count;
   },
 
   getCharacterDialogueSince(date: Date, characterId: string): Dialogue[] {

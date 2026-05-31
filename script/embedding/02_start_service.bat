@@ -4,7 +4,7 @@ echo Embedding Service - Starting (port 7860)
 echo ========================================
 echo.
 
-set "EMB_ROOT=%~dp0..\..\embedding-service"
+set "EMB_ROOT=%~dp0..\..\services\embedding"
 
 cd /d "%EMB_ROOT%"
 set "EMB_ROOT=%CD%"

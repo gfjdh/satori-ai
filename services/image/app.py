@@ -5,7 +5,7 @@ Provides VLLM-based image analysis (fast/detailed modes).
 # ── Load .env ─────────────────────────────────────────────────────
 from dotenv import load_dotenv
 from pathlib import Path
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 
 # ── Constants ──────────────────────────────────────────────────────
 

@@ -27,11 +27,18 @@ satori-ai/
 │   ├── embedding/           # 嵌入向量管理
 │   ├── memory/              # 记忆管理
 │   ├── retrieval/           # 检索系统（vector/bm25/reranker）
-│   ├── skills/              # 内置Skill（search、image-analysis）
+│   ├── skills/              # 内置Skill（search、image-analysis、python-exec、web-surfing）
+│   ├── mcp/                 # MCP客户端管理
 │   ├── state/               # 状态管理（好感度/情绪）
 │   ├── tts/                 # TTS客户端
 │   ├── user/                # 用户画像
 │   └── index.ts             # 入口
+├── services/                 # Python微服务
+│   ├── tts/                 # TTS语音合成 (port 5030)
+│   ├── image/               # 图像分析 (port 8742)
+│   ├── embedding/           # 文本向量化 (port 7860)
+│   └── browser/             # 浏览器自动化 (port 8743)
+├── script/                   # 安装和启动脚本（详见script/readme.md）
 ├── webui/                    # Vue3前端
 │   └── src/
 │       ├── views/            # 页面组件
@@ -43,11 +50,11 @@ satori-ai/
 │       ├── knowledge/       # 角色知识资料
 │       ├── TTS/             # 语音合成配置
 │       └── character.json   # 角色配置
-├── skills/                   # Skill扩展目录
 ├── live2d-widget/            # 桌宠Live2D渲染组件
 ├── data/                     # 运行时数据
 │   ├── database.sqlite     # SQLite数据库
 │   ├── user_profile.json   # 用户画像
+│   ├── mcp.json            # MCP服务器配置
 │   └── logs/                # 日志文件
 ├── .env                      # 配置文件（API密钥等）
 ├── todo.md                   # 设计文档

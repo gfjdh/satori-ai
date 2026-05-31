@@ -4,7 +4,7 @@ echo Image Analysis Service - Starting (port 8742)
 echo ========================================
 echo.
 
-set "IMG_ROOT=%~dp0..\..\image-service"
+set "IMG_ROOT=%~dp0..\..\services\image"
 
 cd /d "%IMG_ROOT%"
 set "IMG_ROOT=%CD%"

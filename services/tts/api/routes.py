@@ -15,9 +15,9 @@ _synthesizer = None
 
 
 def get_project_root():
-    """获取 satori-ai 项目根目录"""
+    """获取 satori-ai 项目根目录（从 services/tts/api/ 往上三层）"""
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.dirname(os.path.dirname(current_dir))
+    return os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
 
 
 def get_synthesizer():

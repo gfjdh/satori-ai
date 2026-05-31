@@ -4,7 +4,7 @@ import { unifiedAgent } from '../agent/unified-agent.js';
 import { proactiveAgent } from '../agent/proactive-agent.js';
 import { stateManager } from '../state/manager.js';
 import { memoryManager } from '../memory/manager.js';
-import { logDb, stateDb, taskDb, now } from '../db/database.js';
+import { logDb, stateDb, taskDb, dialogueDb, now } from '../db/database.js';
 import { loadDefaultCharacter } from '../character/loader.js';
 import { getRecentDialoguesText } from '../agent/dialogue-stats.js';
 import { imageAnalysis } from '../skills/image-analysis/index.js';
@@ -23,8 +23,10 @@ export const chatState = {
 export let launcherWindowVisible = true;
 let proactiveSSEClients: Array<(message: SSEMessage) => void> = [];
 let proactiveTimer = { nextTriggerAt: 0 };
-let proactiveConfig = { enabled: true, minMs: 480_000, maxMs: 1_200_000 };
+let proactiveConfig = { enabled: true, minMs: 480_000, maxMs: 1_200_000, startupGreeting: true };
+let proactiveBackoffMultiplier = 1;
 let heartbeatTask: cron.ScheduledTask | null = null;
+let startupGreetingSent = false;
 
 // ========== SSE client management ==========
 
@@ -61,11 +63,13 @@ export function loadProactiveConfig(): void {
       proactiveConfig.enabled = parsed.enabled ?? true;
       proactiveConfig.minMs = (parsed.minIntervalMinutes ?? 8) * 60_000;
       proactiveConfig.maxMs = (parsed.maxIntervalMinutes ?? 20) * 60_000;
+      proactiveConfig.startupGreeting = parsed.startupGreeting ?? true;
     } else {
-      const defaults = { enabled: true, minIntervalMinutes: 8, maxIntervalMinutes: 20 };
+      const defaults = { enabled: true, minIntervalMinutes: 8, maxIntervalMinutes: 20, startupGreeting: true };
       stateDb.set(character.id, 'proactive_config', JSON.stringify(defaults));
       proactiveConfig.minMs = defaults.minIntervalMinutes * 60_000;
       proactiveConfig.maxMs = defaults.maxIntervalMinutes * 60_000;
+      proactiveConfig.startupGreeting = defaults.startupGreeting;
     }
   } catch (error) {
     logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'heartbeat', content: `Failed to load proactive config: ${error}`, createdAt: now() });
@@ -74,10 +78,13 @@ export function loadProactiveConfig(): void {
 
 // ========== Timer ==========
 
-export function resetProactiveTimer(): void {
-  const delay = proactiveConfig.minMs +
+export function resetProactiveTimer(fromUserInteraction = false): void {
+  if (fromUserInteraction) {
+    proactiveBackoffMultiplier = 1;
+  }
+  const baseDelay = proactiveConfig.minMs +
     Math.random() * (proactiveConfig.maxMs - proactiveConfig.minMs);
-  proactiveTimer.nextTriggerAt = Date.now() + delay;
+  proactiveTimer.nextTriggerAt = Date.now() + baseDelay * proactiveBackoffMultiplier;
 }
 
 // ========== Core proactive interaction ==========
@@ -144,6 +151,7 @@ async function checkProactiveInteraction(): Promise<void> {
     if (chatState.currentProactiveAbortController?.signal === signal) {
       chatState.currentProactiveAbortController = null;
     }
+    proactiveBackoffMultiplier = Math.min(proactiveBackoffMultiplier * 3, 81);
     resetProactiveTimer();
   }
 }
@@ -152,6 +160,31 @@ async function checkProactiveInteraction(): Promise<void> {
 
 function calculateNextRun(_cronExpr: string): Date {
   return new Date(now().getTime() + 60 * 1000);
+}
+
+// ========== Startup greeting ==========
+
+async function executeStartupGreeting(): Promise<void> {
+  const character = loadDefaultCharacter();
+  const turnCount = dialogueDb.getTurnCount(character.id);
+
+  if (turnCount === 0) {
+    // 首次启动：角色主动打招呼
+    const greetingPrompt = '程序刚刚启动，这是你和用户的初次见面。请自然地打个招呼，介绍自己，表达友好。';
+    await proactiveAgent.generate(greetingPrompt, broadcastProactiveMessage);
+  } else {
+    // 重启：角色知道程序刚重启
+    const greetingPrompt = '程序刚刚重启了。你之前和用户聊过天（有历史记录），现在又回来了。请自然地跟用户打个招呼，表示你回来了。';
+    await proactiveAgent.generate(greetingPrompt, broadcastProactiveMessage);
+  }
+
+  logDb.insert({
+    id: crypto.randomUUID(),
+    level: 'info',
+    category: 'proactive',
+    content: `Startup greeting sent (turnCount=${turnCount})`,
+    createdAt: now()
+  });
 }
 
 export function startHeartbeat(): void {
@@ -175,6 +208,43 @@ export function startHeartbeat(): void {
       logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'heartbeat', content: `Heartbeat error: ${error}`, createdAt: now() });
     }
   });
+
+  // 启动问候：延迟 3 秒等 SSE 客户端连接
+  setTimeout(async () => {
+    if (startupGreetingSent) return;
+    if (proactiveConfig.startupGreeting !== true) {
+      logDb.insert({
+        id: crypto.randomUUID(),
+        level: 'info',
+        category: 'proactive',
+        content: `Startup greeting skipped (config.startupGreeting=${proactiveConfig.startupGreeting})`,
+        createdAt: now()
+      });
+      return;
+    }
+    if (proactiveSSEClients.length === 0) {
+      logDb.insert({
+        id: crypto.randomUUID(),
+        level: 'info',
+        category: 'proactive',
+        content: 'Startup greeting skipped (no SSE clients connected)',
+        createdAt: now()
+      });
+      return;
+    }
+    startupGreetingSent = true;
+    try {
+      await executeStartupGreeting();
+    } catch (error) {
+      logDb.insert({
+        id: crypto.randomUUID(),
+        level: 'error',
+        category: 'proactive',
+        content: `Startup greeting failed: ${error}`,
+        createdAt: now()
+      });
+    }
+  }, 3000);
 }
 
 export function stopHeartbeat(): void {
@@ -191,9 +261,10 @@ export function handleProactiveConfigGet(_req: Request, res: Response): void {
     const character = loadDefaultCharacter();
     const raw = stateDb.get(character.id, 'proactive_config');
     if (raw) {
-      res.json(JSON.parse(raw));
+      const parsed = JSON.parse(raw);
+      res.json({ ...parsed, startupGreeting: parsed.startupGreeting ?? true });
     } else {
-      res.json({ enabled: true, minIntervalMinutes: 8, maxIntervalMinutes: 20 });
+      res.json({ enabled: true, minIntervalMinutes: 8, maxIntervalMinutes: 20, startupGreeting: true });
     }
   } catch (error) {
     res.status(500).json({ error: String(error) });
@@ -203,7 +274,7 @@ export function handleProactiveConfigGet(_req: Request, res: Response): void {
 export function handleProactiveConfigPut(req: Request, res: Response): void {
   try {
     const character = loadDefaultCharacter();
-    const { enabled, minIntervalMinutes, maxIntervalMinutes } = req.body;
+    const { enabled, minIntervalMinutes, maxIntervalMinutes, startupGreeting } = req.body;
 
     if (minIntervalMinutes !== undefined && maxIntervalMinutes !== undefined && minIntervalMinutes > maxIntervalMinutes) {
       res.status(400).json({ error: '最小间隔不能大于最大间隔' });
@@ -211,24 +282,26 @@ export function handleProactiveConfigPut(req: Request, res: Response): void {
     }
 
     const raw = stateDb.get(character.id, 'proactive_config');
-    const existing = raw ? JSON.parse(raw) : { enabled: true, minIntervalMinutes: 8, maxIntervalMinutes: 20 };
+    const existing = raw ? JSON.parse(raw) : { enabled: true, minIntervalMinutes: 8, maxIntervalMinutes: 20, startupGreeting: true };
 
     if (enabled !== undefined) existing.enabled = enabled;
     if (minIntervalMinutes !== undefined) existing.minIntervalMinutes = minIntervalMinutes;
     if (maxIntervalMinutes !== undefined) existing.maxIntervalMinutes = maxIntervalMinutes;
+    if (startupGreeting !== undefined) existing.startupGreeting = startupGreeting;
 
     stateDb.set(character.id, 'proactive_config', JSON.stringify(existing));
 
     proactiveConfig.enabled = existing.enabled;
     proactiveConfig.minMs = existing.minIntervalMinutes * 60_000;
     proactiveConfig.maxMs = existing.maxIntervalMinutes * 60_000;
+    proactiveConfig.startupGreeting = existing.startupGreeting ?? true;
     resetProactiveTimer();
 
     logDb.insert({
       id: crypto.randomUUID(),
       level: 'info',
       category: 'proactive',
-      content: `Config updated: enabled=${existing.enabled}, min=${existing.minIntervalMinutes}min, max=${existing.maxIntervalMinutes}min`,
+      content: `Config updated: enabled=${existing.enabled}, min=${existing.minIntervalMinutes}min, max=${existing.maxIntervalMinutes}min, startupGreeting=${existing.startupGreeting}`,
       createdAt: now()
     });
 
@@ -312,6 +385,7 @@ export async function handleProactiveTrigger(req: Request, res: Response): Promi
     if (chatState.currentProactiveAbortController?.signal === signal) {
       chatState.currentProactiveAbortController = null;
     }
+    proactiveBackoffMultiplier = Math.min(proactiveBackoffMultiplier * 3, 81);
     resetProactiveTimer();
   }
 }

@@ -4,7 +4,7 @@ echo TTS Service - Starting (port 5030)
 echo ========================================
 echo.
 
-set "TTS_ROOT=%~dp0..\..\tts-service"
+set "TTS_ROOT=%~dp0..\..\services\tts"
 
 echo Starting TTS service (this may take a while for model loading)...
 echo - TTS API:  http://localhost:5030/api

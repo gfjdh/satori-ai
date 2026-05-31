@@ -4,7 +4,7 @@ echo TTS Service - Environment Setup
 echo ========================================
 echo.
 
-set "TTS_ROOT=%~dp0..\..\tts-service"
+set "TTS_ROOT=%~dp0..\..\services\tts"
 
 cd /d "%TTS_ROOT%"
 set "TTS_ROOT=%CD%"

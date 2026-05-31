@@ -5,6 +5,7 @@
 import { Segment } from './types.js';
 import { SSEMessage } from '../types/index.js';
 import { synthesizeStream } from '../tts/client.js';
+import { logDb, now } from '../db/database.js';
 
 /**
  * 尝试修复常见的 LLM JSON 格式错误
@@ -204,7 +205,14 @@ export async function emitSegment(
         data: { text: subtitle, sentenceIndex }
       });
     }
-  } catch {
+  } catch (err) {
+    logDb.insert({
+      id: crypto.randomUUID(),
+      level: 'warn',
+      category: 'tts',
+      content: `TTS synthesize failed for "${seg.voice}": ${err}`,
+      createdAt: now()
+    });
     // TTS 失败不阻塞，字幕仍需发送
     if (subtitle && speechLanguage !== subtitleLanguage) {
       onSSE?.({

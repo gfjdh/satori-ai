@@ -46,7 +46,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
 
     // done 事件已由 unifiedAgent.finalizeTurn() 发送，这里只需关闭连接
     res.end();
-    resetProactiveTimer();
+    resetProactiveTimer(true);
   } catch (error) {
     logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'agent', content: `Chat API Error: ${error}`, createdAt: now() });
     sendSSE('error', { message: String(error) });

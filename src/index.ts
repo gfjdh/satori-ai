@@ -9,6 +9,7 @@ import { toolRegistry } from './agent/tool-registry.js';
 import { embeddingManager } from './embedding/manager.js';
 import { memoryManager } from './memory/manager.js';
 import { skillEngine } from './skills/engine.js';
+import { mcpClientManager } from './mcp/client.js';
 import { logDb, now } from './db/database.js';
 import { registerRoutes } from './server/routes.js';
 import { handleChat } from './server/chat.js';
@@ -92,6 +93,11 @@ app.listen(PORT, async () => {
   // 恢复未归档的对话并汇总为topic
   await memoryManager.recoverAndSummarizeUnarchived();
 
+  // 启动 MCP 客户端（后台执行，动态发现工具）
+  mcpClientManager.start().catch(err => {
+    logDb.insert({ id: crypto.randomUUID(), level: 'error', category: 'mcp', content: `MCP client start failed: ${err}`, createdAt: now() });
+  });
+
   // 启动心跳
   loadProactiveConfig();
   resetProactiveTimer();
@@ -101,8 +107,9 @@ app.listen(PORT, async () => {
 });
 
 // 优雅关闭
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   logDb.insert({ id: crypto.randomUUID(), level: 'info', category: 'agent', content: 'Shutting down...', createdAt: now() });
   stopHeartbeat();
+  await mcpClientManager.stop();
   process.exit(0);
 });
