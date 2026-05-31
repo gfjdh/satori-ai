@@ -1,7 +1,7 @@
 ---
 name: python-exec
 description: 执行 Python 脚本，用于数据处理、计算、文件操作等编程任务
-triggerWords: [计算, 运行脚本, 执行脚本, python, 帮我写个脚本, 写个python]
+triggerWords: [计算, python, 程序, 脚本, 代码, 执行, 帮我]
 ---
 
 # Python 脚本执行

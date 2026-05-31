@@ -475,7 +475,7 @@ export const toolDefs: ToolDef[] = [
     type: 'function',
     function: {
       name: 'search_character',
-      description: '检索角色知识库（仅关键词检索）。适用于需要了解角色设定、背景故事、性格特征、人物关系等角色相关信息时使用。',
+      description: '检索角色知识库（仅关键词检索，不是网页/互联网搜索）。适用于需要了解角色设定、背景故事、性格特征、人物关系等角色相关信息时使用。如需搜索互联网上的实时信息，请使用 web_navigate。',
       parameters: {
         type: 'object',
         properties: {

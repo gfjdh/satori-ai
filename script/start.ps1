@@ -313,10 +313,20 @@ function Stop-Image-Service {
 }
 
 function Stop-Browser-Service {
+    $pidFile = Join-Path $projectRoot "services\browser\.pid"
+    if (Test-Path $pidFile) {
+        $browserPid = Get-Content $pidFile -Raw
+        if ($browserPid) {
+            $null = taskkill /F /T /PID $browserPid.Trim() 2>&1
+        }
+    }
+
     $job = Get-Job -Name "Satori-Browser" -ErrorAction SilentlyContinue
     if ($job) {
-        Stop-Job -Name "Satori-Browser"
-        Remove-Job -Name "Satori-Browser" -Force
+        Remove-Job -Name "Satori-Browser" -Force -ErrorAction SilentlyContinue
+    }
+
+    if ((Test-Path $pidFile) -or $job) {
         Write-Host "  Stopped: Browser" -ForegroundColor Green
     } else {
         Write-Host "  Browser is not running" -ForegroundColor Gray

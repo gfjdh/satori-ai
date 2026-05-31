@@ -29,6 +29,7 @@ dist/
 **/venv/
 **/output/
 **/out/
+**/.pid
 
 # 忽略数据目录
 data/

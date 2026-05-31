@@ -129,9 +129,9 @@ class UnifiedAgent {
 
     // ========== Phase 3: ReAct Loop ==========
     let round = 0;
-    const maxRounds = 6;
+    const maxRounds = 20;
     let totalToolCalls = 0;
-    const maxToolCalls = 3;
+    const maxToolCalls = 18;
     let buffer = '';
 
     while (round < maxRounds) {

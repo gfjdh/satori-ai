@@ -1,7 +1,7 @@
 ---
 name: image-analysis
 description: 屏幕分析技能 - 分析屏幕截图，支持快速/详细两种模式
-triggerWords: [看, 观察, 屏幕, 识别, 图, 显示, 桌面, 窗口, 照片, 视频, 画]
+triggerWords: [你看, 观察, 屏幕, 识别, 图, 显示, 桌面, 窗口, 照片, 视频, 画]
 ---
 
 ## 工具概览

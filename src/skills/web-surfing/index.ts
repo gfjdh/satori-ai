@@ -82,7 +82,7 @@ export const toolDefs: ToolDef[] = [
     type: 'function',
     function: {
       name: 'web_navigate',
-      description: '导航到指定 URL。打开网页，为后续 observe/click/type 操作做准备。',
+      description: '联网搜索/浏览网页。打开指定 URL 获取互联网上的实时信息，为后续 observe/click/type 操作做准备。当用户要求搜索、查询网上信息时使用此工具。',
       parameters: {
         type: 'object',
         properties: {
