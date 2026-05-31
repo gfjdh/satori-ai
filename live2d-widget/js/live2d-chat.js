@@ -312,42 +312,65 @@
         };
     }
 
+    let chatAbortController = null;
+
     // 发送消息
     async function sendMessage() {
         const input = document.getElementById('chat-input');
         const sendBtn = document.getElementById('chat-send-btn');
-        if (!input || !input.value.trim() || isAudioPlaying) return;
+        if (!input || !input.value.trim()) return;
 
         const userMessage = input.value.trim();
         input.value = '';
         sendBtn.disabled = true;
 
-        // 清空字幕
-        clearAllSubtitles();
-        if (subtitleClearTimer) {
-            clearTimeout(subtitleClearTimer);
-            subtitleClearTimer = null;
+        // 如果正在对话中，打断当前请求
+        if (chatAbortController) {
+            chatAbortController.abort();
+            chatAbortController = null;
+            // 清空音频队列（当前播放的句子自然结束，不播下一句）
+            audioQueue = [];
+            // 清理流式状态
+            subtitleQueue.clear();
+            sentenceEndPunctuation.clear();
+            if (streamingTimer) {
+                clearTimeout(streamingTimer);
+                streamingTimer = null;
+            }
+            streamingSentenceIndex = -1;
+            isStreamDone = false;
+            needNewMsgEl = true;
+            currentMsgEl = null;
+        } else {
+            // 非打断场景：完整清理
+            clearAllSubtitles();
+            if (subtitleClearTimer) {
+                clearTimeout(subtitleClearTimer);
+                subtitleClearTimer = null;
+            }
+            audioQueue = [];
+            playedIds = new Set();
+            isAudioPlaying = false;
+            audioRetryCount = 0;
+            if (audioElement) {
+                audioElement.pause();
+                audioElement = null;
+            }
+            subtitleQueue.clear();
+            sentenceEndPunctuation.clear();
+            if (streamingTimer) {
+                clearTimeout(streamingTimer);
+                streamingTimer = null;
+            }
+            streamingSentenceIndex = -1;
+            isStreamDone = false;
+            needNewMsgEl = true;
+            currentMsgEl = null;
         }
 
-        // 重置播放状态
-        audioQueue = [];
-        playedIds = new Set();
-        audioRetryCount = 0;
-        isAudioPlaying = false;
-        if (audioElement) {
-            audioElement.pause();
-            audioElement = null;
-        }
-        subtitleQueue.clear();
-        sentenceEndPunctuation.clear();
-        if (streamingTimer) {
-            clearTimeout(streamingTimer);
-            streamingTimer = null;
-        }
-        streamingSentenceIndex = -1;
-        isStreamDone = false;
-        needNewMsgEl = true;
-        currentMsgEl = null;
+        // 创建新的 AbortController
+        chatAbortController = new AbortController();
+        const controller = chatAbortController;
 
         try {
             chatActive = true;
@@ -355,7 +378,8 @@
             const response = await fetch(API_BASE + '/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: userMessage })
+                body: JSON.stringify({ message: userMessage }),
+                signal: controller.signal
             });
 
             console.log('Response status:', response.status);
@@ -387,13 +411,21 @@
                 }
             }
         } catch (error) {
+            if (error.name === 'AbortError') {
+                console.log('Chat aborted for new message');
+                return;
+            }
             console.error('Chat error:', error);
             clearAllSubtitles();
             var errEl = createMessageElement();
             if (errEl) errEl.textContent = '错误: ' + error.message;
         } finally {
-            chatActive = false;
-            sendBtn.disabled = false;
+            // 仅当仍是当前 controller 时才清理状态
+            if (chatAbortController === controller) {
+                chatActive = false;
+                chatAbortController = null;
+                sendBtn.disabled = false;
+            }
         }
     }
 

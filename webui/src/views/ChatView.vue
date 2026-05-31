@@ -7,6 +7,7 @@ import type { Dialogue, LogEntry } from '@/api'
 const messages = ref<Array<{ role: 'user' | 'assistant'; content: string; time: Date; audioQueue?: any[]; currentSubtitle?: string ;charName?: string }>>([])
 const inputText = ref('')
 const isLoading = ref(false)
+let abortController: AbortController | null = null
 
 // 音频播放相关
 const audioQueue = ref<Array<{ base64: string; sentenceIndex: number }>>([])
@@ -137,7 +138,20 @@ function playNextAudio() {
 
 // 发送消息
 async function sendMessage() {
-  if (!inputText.value.trim() || isLoading.value) return
+  if (!inputText.value.trim()) return
+
+  // 如果正在加载中，打断当前请求
+  if (isLoading.value && abortController) {
+    abortController.abort()
+    abortController = null
+    // 清理流式/音频状态（不暂停当前播放的音频，让它自然结束）
+    if (streamingTimer) {
+      clearTimeout(streamingTimer)
+      streamingTimer = null
+    }
+    subtitleQueue.value.clear()
+    audioQueue.value = []  // 清空队列阻止后续播放，当前句子播完自然停止
+  }
 
   const userMessage = inputText.value.trim()
   inputText.value = ''
@@ -156,13 +170,18 @@ async function sendMessage() {
   await nextTick()
   scrollToBottom()
 
+  // 创建新的 AbortController
+  abortController = new AbortController()
+  const signal = abortController.signal
+
   try {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ message: userMessage })
+      body: JSON.stringify({ message: userMessage }),
+      signal
     })
 
     if (!response.ok) {
@@ -190,8 +209,6 @@ async function sendMessage() {
       audioElement.pause()
       audioElement = null
     }
-    // subtitleQueue.value.clear()
-    // voiceQueue.value.clear()
     streamingText.value = ''
     streamingSentenceIndex.value = -1
     if (streamingTimer) {
@@ -314,12 +331,18 @@ async function sendMessage() {
 
     addContextLog('对话完成', {})
     isLoading.value = false
+    abortController = null
     refreshData()
 
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.name === 'AbortError') {
+      console.log('Chat aborted for new message')
+      return
+    }
     console.error('Chat error:', error)
     addContextLog('错误', { error: String(error) })
     isLoading.value = false
+    abortController = null
   }
 }
 

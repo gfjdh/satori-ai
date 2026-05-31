@@ -73,7 +73,7 @@ class UnifiedAgent {
     });
 
     if (signal?.aborted) {
-      return this.finalizeTurn(userInput, allVoiceTexts, onSSE, turnId, turnIndex);
+      return this.finalizeTurn(userInput, allVoiceTexts, onSSE, turnId, turnIndex, true);
     }
 
     // ========== Phase 1.5: Trigger word matching ==========
@@ -97,7 +97,7 @@ class UnifiedAgent {
     }
 
     if (signal?.aborted) {
-      return this.finalizeTurn(userInput, allVoiceTexts, onSSE, turnId, turnIndex);
+      return this.finalizeTurn(userInput, allVoiceTexts, onSSE, turnId, turnIndex, true);
     }
 
     // ========== Phase 2: Build messages ==========
@@ -132,6 +132,7 @@ class UnifiedAgent {
     const maxRounds = 6;
     let totalToolCalls = 0;
     const maxToolCalls = 3;
+    let buffer = '';
 
     while (round < maxRounds) {
       if (signal?.aborted) break;
@@ -139,7 +140,7 @@ class UnifiedAgent {
 
       const toolCallsThisRound = new Map<string, { name: string; arguments: string }>();
       let textDeltaThisRound = '';
-      let buffer = '';
+      buffer = '';
 
       // 温度分离：文本生成用 0.7，处理工具结果用 0.3（原 Analyzer 专用温度）
       const temperature = totalToolCalls > 0 ? 0.3 : 0.7;
@@ -206,14 +207,16 @@ class UnifiedAgent {
         }
       }
 
-      // Process residual buffer
-      if (!signal?.aborted && buffer.trim()) {
+      // Process residual buffer (always parse, skip emission when aborted)
+      if (buffer.trim()) {
         const seg = parseSegment(buffer.trim());
         if (seg) {
-          sentenceIndex = await emitSegment(
-            seg, sentenceIndex, speechLanguage, subtitleLanguage,
-            this.character.id, onSSE
-          );
+          if (!signal?.aborted) {
+            sentenceIndex = await emitSegment(
+              seg, sentenceIndex, speechLanguage, subtitleLanguage,
+              this.character.id, onSSE
+            );
+          }
           allVoiceTexts.push(seg.voice);
         }
       }
@@ -275,7 +278,7 @@ class UnifiedAgent {
       const toolEntries = Array.from(toolCallsThisRound.entries());
       totalToolCalls += toolEntries.length;
 
-      const toolResults = await Promise.all(
+      const executeAllTools = Promise.all(
         toolEntries.map(async ([toolCallId, toolCall]) => {
           let params: Record<string, unknown> = {};
           if (toolCall.arguments) {
@@ -293,6 +296,24 @@ class UnifiedAgent {
         })
       );
 
+      let toolResults: Array<{ toolCallId: string; toolResult: string }>;
+      if (signal) {
+        const abortPromise = new Promise<never>((_, reject) => {
+          const err = new Error('Aborted');
+          err.name = 'AbortError';
+          if (signal.aborted) { reject(err); return; }
+          signal.addEventListener('abort', () => reject(err), { once: true });
+        });
+        try {
+          toolResults = await Promise.race([executeAllTools, abortPromise]);
+        } catch (e: any) {
+          if (e?.name === 'AbortError') break;
+          throw e;
+        }
+      } else {
+        toolResults = await executeAllTools;
+      }
+
       for (const { toolCallId, toolResult } of toolResults) {
         messages.push({
           role: 'tool' as const,
@@ -302,7 +323,7 @@ class UnifiedAgent {
       }
     }
 
-    return this.finalizeTurn(userInput, allVoiceTexts, onSSE, turnId, turnIndex);
+    return this.finalizeTurn(userInput, allVoiceTexts, onSSE, turnId, turnIndex, !!signal?.aborted);
   }
 
   private finalizeTurn(
@@ -310,7 +331,8 @@ class UnifiedAgent {
     allVoiceTexts: string[],
     onSSE: ((message: SSEMessage) => void) | undefined,
     turnId: string,
-    turnIndex: number
+    turnIndex: number,
+    skipPostProcessing = false
   ): string {
     const finalText = allVoiceTexts.join('');
 
@@ -327,13 +349,15 @@ class UnifiedAgent {
       };
       dialogueDb.insert(dialogue);
 
-      memoryManager.ensureTopicTracking();
-      memoryManager.shouldSwitchTopic(userInput).then(shouldSwitch => {
-        if (shouldSwitch) {
-          memoryManager.archiveCurrentTopic();
-        }
-      });
-      this.updateStatesAsync(userInput, finalText);
+      if (!skipPostProcessing) {
+        memoryManager.ensureTopicTracking();
+        memoryManager.shouldSwitchTopic(userInput).then(shouldSwitch => {
+          if (shouldSwitch) {
+            memoryManager.archiveCurrentTopic();
+          }
+        });
+        this.updateStatesAsync(userInput, finalText);
+      }
     }
 
     return finalText;

@@ -38,8 +38,8 @@ export class ProactiveAgent {
   ): Promise<string> {
     if (signal?.aborted) return '';
 
-    const speechLanguage = this.character.speechLanguage || 'ja-JP';
-    const subtitleLanguage = this.character.subtitleLanguage || 'zh-CN';
+    const speechLanguage = this.character.speechLanguage || '';
+    const subtitleLanguage = this.character.subtitleLanguage || '';
     const availableEmotions = getAvailableEmotions(this.character.id);
     const availableActions = getAvailableActions(this.character.id);
     const characterInfo = this.character.characterInfo || this.character.personality || '';

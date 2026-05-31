@@ -361,6 +361,7 @@ app.get('/api/tasks', (req: Request, res: Response) => {
 // ========== 对话接口 (SSE流式) ==========
 
 let currentChatAbortController: AbortController | null = null;
+let currentChatCompletion: Promise<void> | null = null;
 let currentProactiveAbortController: AbortController | null = null;
 let proactiveTimer = { nextTriggerAt: 0 };
 let proactiveConfig = { enabled: true, minMs: 480_000, maxMs: 1_200_000 };
@@ -380,12 +381,17 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     currentProactiveAbortController = null;
   }
 
-  // 中断当前正在进行的对话（视为正常结束，后处理由 unifiedAgent.finalizeTurn 完成）
+  // 中断当前正在进行的对话（等待旧 process 完成落库后再开始新的）
   if (currentChatAbortController) {
     currentChatAbortController.abort();
+    try { await currentChatCompletion; } catch {}
   }
   currentChatAbortController = new AbortController();
   const signal = currentChatAbortController.signal;
+
+  // 跟踪本次 process 完成，用于后续打断时等待落库
+  let resolveCompletion: () => void;
+  currentChatCompletion = new Promise<void>(resolve => { resolveCompletion = resolve; });
 
   // 设置SSE
   res.setHeader('Content-Type', 'text/event-stream');
@@ -410,9 +416,11 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     sendSSE('error', { message: String(error) });
     res.end();
   } finally {
+    resolveCompletion!();
     // 清理（仅当仍是当前 controller 时）
     if (currentChatAbortController && currentChatAbortController.signal === signal) {
       currentChatAbortController = null;
+      currentChatCompletion = null;
     }
   }
 });
@@ -786,7 +794,7 @@ async function executeProactiveInteraction(signal: AbortSignal): Promise<void> {
     const vllmQuery = recentForVllm && recentForVllm.length > 20
       ? `图中有什么值得讨论的东西？我们最近在聊：${recentForVllm}。请基于这些对话内容，分析当前屏幕，告诉我有什么新的、相关的、有趣的东西值得我们讨论？`
       : '图中有什么值得讨论的东西？';
-    screenDescription = await imageAnalysis({ query: vllmQuery });
+    screenDescription = await imageAnalysis({ query: vllmQuery, vllmMode: 'fast' });
   } catch (e) {
     logDb.insert({
       id: crypto.randomUUID(),
