@@ -88,6 +88,44 @@ export function parseSegment(line: string): Segment | null {
 }
 
 /**
+ * 流式提取完整 JSON 对象 — 花括号深度追踪
+ * 返回已完成的 JSON 字符串数组 + 未闭合的剩余文本
+ * 同时兼容单行 JSON 和多行 pretty-print JSON
+ */
+export function extractCompleteJSONObjects(text: string): { objects: string[]; remainder: string } {
+  const objects: string[] = [];
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let start = -1;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+
+    if (escaped) { escaped = false; continue; }
+    if (ch === '\\') { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+
+    if (ch === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        objects.push(text.slice(start, i + 1));
+        start = -1;
+      }
+    }
+  }
+
+  // 剩余：从最后一个完整对象之后，或从最后一个未闭合的 { 开始
+  const remainder = start >= 0 ? text.slice(start) : '';
+
+  return { objects, remainder };
+}
+
+/**
  * 从一段完整文本中提取所有 Segment（兜底用）
  */
 export function extractAllSegments(text: string): Segment[] {

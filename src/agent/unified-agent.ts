@@ -20,7 +20,7 @@ import { loadDefaultCharacter, getAvailableActions, type CharacterConfig } from 
 import { userProfileManager } from '../user/profile.js';
 
 import { buildReActMessages, type ChatMessage } from './prompts.js';
-import { parseSegment, emitSegment, extractAllSegments } from './segment-utils.js';
+import { parseSegment, emitSegment, extractAllSegments, extractCompleteJSONObjects } from './segment-utils.js';
 import { getDialogueStats, getRecentDialoguesText } from './dialogue-stats.js';
 import { toolRegistry } from './tool-registry.js';
 import { discloseSkill } from './tools.js';
@@ -141,6 +141,7 @@ class UnifiedAgent {
       const toolCallsThisRound = new Map<string, { name: string; arguments: string }>();
       let textDeltaThisRound = '';
       buffer = '';
+      const preRoundVoiceCount = allVoiceTexts.length;
 
       // 温度分离：文本生成用 0.7，处理工具结果用 0.3（原 Analyzer 专用温度）
       const temperature = totalToolCalls > 0 ? 0.3 : 0.7;
@@ -169,12 +170,11 @@ class UnifiedAgent {
             buffer += chunk.delta;
 
             {
-              const lines = buffer.split('\n');
-              buffer = lines.pop() || '';
-              for (const line of lines) {
-                const trimmed = line.trim();
-                if (!trimmed || !trimmed.startsWith('{')) continue;
-                const seg = parseSegment(trimmed);
+              // 花括号深度追踪提取完整 JSON，兼容单行和多行 pretty-print
+              const result = extractCompleteJSONObjects(buffer);
+              buffer = result.remainder;
+              for (const objStr of result.objects) {
+                const seg = parseSegment(objStr);
                 if (!seg) continue;
                 sentenceIndex = await emitSegment(
                   seg, sentenceIndex, speechLanguage, subtitleLanguage,
@@ -207,22 +207,39 @@ class UnifiedAgent {
         }
       }
 
-      // Process residual buffer (always parse, skip emission when aborted)
+      // 流结束后处理残留 buffer（同样兼容单行和多行 JSON）
       if (buffer.trim()) {
-        const seg = parseSegment(buffer.trim());
-        if (seg) {
-          if (!signal?.aborted) {
-            sentenceIndex = await emitSegment(
-              seg, sentenceIndex, speechLanguage, subtitleLanguage,
-              this.character.id, onSSE
-            );
+        const result = extractCompleteJSONObjects(buffer);
+        for (const objStr of result.objects) {
+          const seg = parseSegment(objStr);
+          if (seg) {
+            if (!signal?.aborted) {
+              sentenceIndex = await emitSegment(
+                seg, sentenceIndex, speechLanguage, subtitleLanguage,
+                this.character.id, onSSE
+              );
+            }
+            allVoiceTexts.push(seg.voice);
           }
-          allVoiceTexts.push(seg.voice);
+        }
+        // 如果流式解析完全失败且没有任何段落被提取，尝试对整个残留文本进行一次性提取（极端情况下模型可能一次性输出完整 JSON）
+        if (result.objects.length === 0) {
+          const seg = parseSegment(result.remainder || buffer.trim());
+          if (seg) {
+            if (!signal?.aborted) {
+              sentenceIndex = await emitSegment(
+                seg, sentenceIndex, speechLanguage, subtitleLanguage,
+                this.character.id, onSSE
+              );
+            }
+            allVoiceTexts.push(seg.voice);
+          }
         }
       }
 
-      // Fallback: if line-by-line parsing yielded nothing, try full-text extraction
-      if (allVoiceTexts.length === 0 && textDeltaThisRound.trim()) {
+      // 安全检查：如果本轮没有任何段落被成功解析出来，尝试对本轮累计的文本增量进行一次性提取（极端情况下模型可能输出格式完全不符合预期，导致逐行解析失败）
+      const segsAddedThisRound = allVoiceTexts.length - preRoundVoiceCount;
+      if (segsAddedThisRound === 0 && textDeltaThisRound.trim()) {
         const fallbackSegs = extractAllSegments(textDeltaThisRound);
         for (const seg of fallbackSegs) {
           sentenceIndex = await emitSegment(
