@@ -4,6 +4,7 @@ import { callLLM, getLLMConfig } from '../api/llm.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Memory, Dialogue } from '../types/index.js';
 import { generateAndStoreEmbedding } from '../retrieval/vector-search.js';
+import { embeddingManager } from '../embedding/manager.js';
 import { getCharacterName } from '../character/loader.js';
 import { getCurrentCharacterId } from '../character/knowledge.js';
 import { userProfileManager } from '../user/profile.js';
@@ -442,6 +443,31 @@ ${memoryText}
       if (threshold <= 0) return s.memory;
     }
     return scored[scored.length - 1].memory;
+  }
+
+  // 启动时修复embedding为null的记忆
+  async repairNullEmbeddings(): Promise<number> {
+    const nullMemories = memoryDb.getAllWithNullEmbedding();
+    if (nullMemories.length === 0) return 0;
+
+    const texts = nullMemories.map(m => m.content);
+    const embeddings = await embeddingManager.encodeBatch(texts);
+
+    for (let i = 0; i < nullMemories.length; i++) {
+      const f32 = new Float32Array(embeddings[i]);
+      const buffer = Buffer.from(f32.buffer, 0, f32.byteLength);
+      memoryDb.updateEmbedding(nullMemories[i].id, buffer);
+    }
+
+    logDb.insert({
+      id: uuidv4(),
+      level: 'info',
+      category: 'embedding',
+      content: `[MemoryManager] Repaired ${nullMemories.length} null embeddings`,
+      createdAt: now()
+    });
+
+    return nullMemories.length;
   }
 
   // 启动时恢复未归档的对话并汇总为topic

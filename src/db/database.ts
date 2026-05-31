@@ -334,6 +334,11 @@ export const memoryDb = {
     }));
   },
 
+  getAllWithNullEmbedding(): Array<{ id: string; content: string }> {
+    const stmt = db.prepare('SELECT id, content FROM memories WHERE embedding IS NULL');
+    return stmt.all() as Array<{ id: string; content: string }>;
+  },
+
   getAllWithEmbedding(): Array<Memory & { embedding: Buffer | null }> {
     const stmt = db.prepare('SELECT * FROM memories WHERE embedding IS NOT NULL');
     const rows = stmt.all() as any[];
