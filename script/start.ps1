@@ -17,6 +17,7 @@ $ttsPort = 5030
 $embeddingPort = 7860
 $imagePort = 8742
 $browserPort = 8743
+$asrPort = 5032
 
 function Wait-ServiceReady {
     param(
@@ -106,8 +107,9 @@ function Show-Menu {
     Write-Host "  [5] Live2D      (system Python)" -ForegroundColor White
     Write-Host "  [6] Image        (port $imagePort)" -ForegroundColor White
     Write-Host "  [7] Browser      (port $browserPort)" -ForegroundColor White
+    Write-Host "  [8] ASR          (port $asrPort)" -ForegroundColor White
     Write-Host "  [A] All (backend + webui + services)" -ForegroundColor Yellow
-    Write-Host "  [S] Services Only (WebUI/TTS/Embed/Image/Browser)" -ForegroundColor Yellow
+    Write-Host "  [S] Services Only (WebUI/TTS/Embed/Image/Browser/ASR)" -ForegroundColor Yellow
     Write-Host "  [K] Stop All Services" -ForegroundColor Red
     Write-Host "  [X] Stop Specific Service" -ForegroundColor Red
     Write-Host "  [Q] Quit" -ForegroundColor Red
@@ -222,6 +224,25 @@ function Start-Browser-Service {
     $null = Wait-ServiceReady -JobName "Satori-Browser" -Port $browserPort -DisplayName "Browser"
 }
 
+function Start-ASR-Service {
+    Write-Host "[Start] ASR Service (port $asrPort)..." -NoNewline
+
+    $asrPath = Join-Path $projectRoot "services\asr"
+    if (-not (Test-Path "$asrPath\venv\Scripts\python.exe")) {
+        Write-Host ""
+        Write-Host "  ASR venv not found. Run asr\01_setup_env.bat first." -ForegroundColor Red
+        return
+    }
+
+    $job = Start-Job -Name "Satori-ASR" -ScriptBlock {
+        param($path, $port)
+        Set-Location $path
+        & ".\venv\Scripts\python.exe" "app.py"
+    } -ArgumentList $asrPath, $asrPort
+
+    $null = Wait-ServiceReady -JobName "Satori-ASR" -Port $asrPort -DisplayName "ASR" -TimeoutSeconds 300
+}
+
 function Start-Live2D-Service {
     Write-Host "[Start] Live2D Launcher (system Python)..." -NoNewline
 
@@ -333,6 +354,17 @@ function Stop-Browser-Service {
     }
 }
 
+function Stop-ASR-Service {
+    $job = Get-Job -Name "Satori-ASR" -ErrorAction SilentlyContinue
+    if ($job) {
+        Stop-Job -Name "Satori-ASR"
+        Remove-Job -Name "Satori-ASR" -Force
+        Write-Host "  Stopped: ASR" -ForegroundColor Green
+    } else {
+        Write-Host "  ASR is not running" -ForegroundColor Gray
+    }
+}
+
 function Stop-Live2D-Service {
     $procs = Get-CimInstance Win32_Process -Filter "Name='pythonw.exe' OR Name='python.exe'" -ErrorAction SilentlyContinue | Where-Object {
         $_.CommandLine -like "*live2d-launcher.py*"
@@ -357,6 +389,7 @@ function Stop-All-Services {
     Stop-Embedding-Service
     Stop-Image-Service
     Stop-Browser-Service
+    Stop-ASR-Service
     Stop-Live2D-Service
 
     Write-Host ""
@@ -373,6 +406,7 @@ function Start-Services-Only {
     Start-Embedding-Service
     Start-Image-Service
     Start-Browser-Service
+    Start-ASR-Service
 
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Cyan
@@ -384,6 +418,7 @@ function Start-Services-Only {
     Write-Host "  Embedding:  http://localhost:$embeddingPort" -ForegroundColor White
     Write-Host "  Image:      http://localhost:$imagePort" -ForegroundColor White
     Write-Host "  Browser:    http://localhost:$browserPort" -ForegroundColor White
+    Write-Host "  ASR:        http://localhost:$asrPort/api" -ForegroundColor White
     Write-Host ""
 }
 
@@ -398,6 +433,7 @@ function Start-All-Services {
     Start-Embedding-Service
     Start-Image-Service
     Start-Browser-Service
+    Start-ASR-Service
     Start-Live2D-Service
 
     Write-Host ""
@@ -411,6 +447,7 @@ function Start-All-Services {
     Write-Host "  Embedding:  http://localhost:$embeddingPort" -ForegroundColor White
     Write-Host "  Image:      http://localhost:$imagePort" -ForegroundColor White
     Write-Host "  Browser:    http://localhost:$browserPort" -ForegroundColor White
+    Write-Host "  ASR:        http://localhost:$asrPort/api" -ForegroundColor White
     Write-Host ""
 }
 
@@ -428,10 +465,11 @@ if ($stop) {
         "live2d"    { Stop-Live2D-Service }
         "image"     { Stop-Image-Service }
         "browser"   { Stop-Browser-Service }
+        "asr"       { Stop-ASR-Service }
         "all"       { Stop-All-Services }
         default {
             Write-Host "Unknown service: $stop" -ForegroundColor Red
-            Write-Host "Valid: backend, webui, tts, embedding, live2d, image, browser, all" -ForegroundColor Gray
+            Write-Host "Valid: backend, webui, tts, embedding, live2d, image, browser, asr, all" -ForegroundColor Gray
         }
     }
     exit
@@ -445,6 +483,7 @@ switch ($service.ToLower()) {
     "live2d" { Start-Live2D-Service }
     "image" { Start-Image-Service }
     "browser" { Start-Browser-Service }
+    "asr" { Start-ASR-Service }
     "services" { Start-Services-Only }
     "all" { Start-All-Services }
     "menu" {
@@ -466,6 +505,8 @@ switch ($service.ToLower()) {
                 "image" { Start-Image-Service }
                 "7" { Start-Browser-Service }
                 "browser" { Start-Browser-Service }
+                "8" { Start-ASR-Service }
+                "asr" { Start-ASR-Service }
                 "a" { Start-All-Services }
                 "all" { Start-All-Services }
                 "s" { Start-Services-Only }
@@ -476,7 +517,7 @@ switch ($service.ToLower()) {
                     Write-Host ""
                     Write-Host "  Stop which service?" -ForegroundColor Yellow
                     Write-Host "  [1] Backend   [2] WebUI   [3] TTS   [4] Embedding" -ForegroundColor White
-                    Write-Host "  [5] Live2D    [6] Image   [7] Browser" -ForegroundColor White
+                    Write-Host "  [5] Live2D    [6] Image   [7] Browser   [8] ASR" -ForegroundColor White
                     $stopChoice = Read-Host "  Choice (or Enter to cancel)"
                     switch ($stopChoice) {
                         "1" { Stop-Backend-Service }
@@ -486,6 +527,7 @@ switch ($service.ToLower()) {
                         "5" { Stop-Live2D-Service }
                         "6" { Stop-Image-Service }
                         "7" { Stop-Browser-Service }
+                        "8" { Stop-ASR-Service }
                         "" { }
                         default { Write-Host "  Invalid: $stopChoice" -ForegroundColor Red }
                     }
@@ -500,8 +542,8 @@ switch ($service.ToLower()) {
     }
     default {
         Write-Host "Usage: .\start.ps1 [-service <name>] [-stop <name>]" -ForegroundColor Yellow
-        Write-Host "  -service: backend | webui | tts | embedding | live2d | image | browser | services | all | menu" -ForegroundColor Gray
-        Write-Host "  -stop:    backend | webui | tts | embedding | live2d | image | browser | all" -ForegroundColor Gray
+        Write-Host "  -service: backend | webui | tts | embedding | live2d | image | browser | asr | services | all | menu" -ForegroundColor Gray
+        Write-Host "  -stop:    backend | webui | tts | embedding | live2d | image | browser | asr | all" -ForegroundColor Gray
         Write-Host "  No args - showing menu" -ForegroundColor Gray
         & $PSCommandPath -service menu
     }

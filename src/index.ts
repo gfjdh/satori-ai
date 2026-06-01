@@ -25,6 +25,11 @@ import {
   startHeartbeat,
   stopHeartbeat,
 } from './server/proactive.js';
+import {
+  handleVoiceConfigGet,
+  handleVoiceConfigPut,
+  handleVoiceTranscribe,
+} from './server/voice.js';
 
 const app = express();
 const PORT = process.env.PORT || 3682;
@@ -64,6 +69,11 @@ app.put('/api/proactive/config', handleProactiveConfigPut);
 app.post('/api/proactive/trigger', handleProactiveTrigger);
 app.post('/api/launcher/state', handleLauncherState);
 app.get('/api/proactive/stream', handleProactiveStream);
+
+// 语音识别
+app.get('/api/voice/config', handleVoiceConfigGet);
+app.put('/api/voice/config', handleVoiceConfigPut);
+app.post('/api/voice/transcribe', express.raw({ type: 'application/octet-stream', limit: '2MB' }), handleVoiceTranscribe);
 
 // ========== 启动 ==========
 

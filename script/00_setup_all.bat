@@ -65,7 +65,7 @@ if errorlevel 1 (
 echo.
 
 :: Browser
-echo [6/7] Browser Service (Python)...
+echo [6/8] Browser Service (Python)...
 cd /d "%~dp0browser"
 call 01_setup_env.bat
 if errorlevel 1 (
@@ -74,8 +74,18 @@ if errorlevel 1 (
 )
 echo.
 
+:: ASR
+echo [7/8] ASR Service (Python)...
+cd /d "%~dp0asr"
+call 01_setup_env.bat
+if errorlevel 1 (
+    set /a FAILURES+=1
+    echo ERROR: ASR setup failed
+)
+echo.
+
 :: Live2D (uses system Python)
-echo [7/7] Live2D Launcher (system Python)...
+echo [8/8] Live2D Launcher (system Python)...
 cd /d "%~dp0live2d"
 call 01_setup_env.bat
 if errorlevel 1 (

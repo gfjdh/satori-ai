@@ -43,6 +43,17 @@ class Live2DWebPage(QWebEnginePage):
     def __init__(self, window, parent=None):
         super().__init__(parent)
         self._window = window
+        self.featurePermissionRequested.connect(self._on_feature_permission)
+
+    def _on_feature_permission(self, url, feature):
+        """Grant microphone access so getUserMedia() works."""
+        if feature in (
+            QWebEnginePage.Feature.MediaAudioCapture,
+            QWebEnginePage.Feature.MediaAudioVideoCapture,
+        ):
+            self.setFeaturePermission(
+                url, feature, QWebEnginePage.PermissionPolicy.PermissionGrantedByUser
+            )
 
     def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
         if message.startswith('L2D_SCALE:'):
@@ -364,6 +375,7 @@ class Live2DWindow(QMainWindow):
         menu.addAction('变装', self.handle_change_costume)
         menu.addAction('隐藏', self.hide_window)
         menu.addAction('设置互动频率', self.open_settings)
+        menu.addAction('语音对话设置', self.open_voice_settings)
 
         menu.exec(global_pos)
 
@@ -489,6 +501,10 @@ class Live2DWindow(QMainWindow):
     def open_settings(self):
         self._log_to_db('info', 'launcher', 'Menu: 设置互动频率 clicked')
         self.web_view.page().runJavaScript('window.live2dSettings && window.live2dSettings.show()')
+
+    def open_voice_settings(self):
+        self._log_to_db('info', 'launcher', 'Menu: 语音对话设置 clicked')
+        self.web_view.page().runJavaScript('window.live2dVoiceSettings && window.live2dVoiceSettings.show()')
 
     def show_actions_panel(self):
         self._log_to_db('info', 'launcher', 'Menu: 展示动作 clicked')

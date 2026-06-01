@@ -2,20 +2,20 @@
 (function() {
     'use strict';
 
-    const API_BASE = '';
+    var API_BASE = '';
 
-    const overlay = document.getElementById('settings-overlay');
-    const toggle = document.getElementById('toggle-enabled');
-    const toggleStartupGreeting = document.getElementById('toggle-startup-greeting');
-    const rangeMin = document.getElementById('range-min');
-    const rangeMax = document.getElementById('range-max');
-    const dispMin = document.getElementById('disp-min');
-    const dispMax = document.getElementById('disp-max');
-    const valMin = document.getElementById('val-min');
-    const valMax = document.getElementById('val-max');
+    var overlay = document.getElementById('settings-overlay');
+    var toggle = document.getElementById('toggle-enabled');
+    var toggleStartupGreeting = document.getElementById('toggle-startup-greeting');
+    var rangeMin = document.getElementById('range-min');
+    var rangeMax = document.getElementById('range-max');
+    var dispMin = document.getElementById('disp-min');
+    var dispMax = document.getElementById('disp-max');
+    var valMin = document.getElementById('val-min');
+    var valMax = document.getElementById('val-max');
 
-    let enabled = true;
-    let startupGreeting = true;
+    var enabled = true;
+    var startupGreeting = true;
 
     function show() {
         loadConfig().then(function() {
@@ -29,9 +29,9 @@
 
     async function loadConfig() {
         try {
-            const resp = await fetch(API_BASE + '/api/proactive/config');
+            var resp = await fetch(API_BASE + '/api/proactive/config');
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
-            const cfg = await resp.json();
+            var cfg = await resp.json();
             enabled = cfg.enabled !== false;
             startupGreeting = cfg.startupGreeting !== false;
             toggle.className = 'toggle' + (enabled ? ' on' : '');
@@ -45,8 +45,8 @@
     }
 
     async function saveConfig() {
-        const minVal = parseInt(rangeMin.value);
-        const maxVal = parseInt(rangeMax.value);
+        var minVal = parseInt(rangeMin.value);
+        var maxVal = parseInt(rangeMax.value);
 
         if (minVal > maxVal) {
             alert('最小间隔不能大于最大间隔');
@@ -54,7 +54,7 @@
         }
 
         try {
-            const resp = await fetch(API_BASE + '/api/proactive/config', {
+            var resp = await fetch(API_BASE + '/api/proactive/config', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -65,14 +65,16 @@
                 })
             });
             if (!resp.ok) {
-                const err = await resp.json();
+                var err = await resp.json();
                 throw new Error(err.error || 'HTTP ' + resp.status);
             }
-            hide();
         } catch (e) {
             console.error('Failed to save proactive config:', e);
             alert('保存失败: ' + e.message);
+            return;
         }
+
+        hide();
     }
 
     function updateDisp() {
@@ -110,7 +112,6 @@
         if (e.target === overlay) hide();
     });
 
-    // 注册到全局，供 Python launcher 调用
     window.live2dSettings = {
         show: show,
         hide: hide

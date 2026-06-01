@@ -229,6 +229,167 @@
             color: #ccc;
         }
         #settings-panel .btn-close:hover { background: rgba(255,255,255,0.2); }
+        /* Mic indicator animations */
+        @keyframes mic-pulse {
+            0%, 100% { transform: scale(1); opacity: 0.9; }
+            50% { transform: scale(1.15); opacity: 1; }
+        }
+        @keyframes mic-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        @keyframes mic-blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.2; }
+        }
+        #settings-panel .settings-sep {
+            border: none;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            margin: 14px 0 12px 0;
+        }
+        #settings-panel .settings-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+        #settings-panel .settings-row span {
+            font-size: 13px;
+            color: #aaa;
+        }
+        #settings-panel .settings-row input[type="range"] {
+            flex: 1;
+            margin: 0 8px;
+            accent-color: #ff69b4;
+        }
+        #settings-panel .settings-row .val {
+            min-width: 36px;
+            text-align: right;
+            font-size: 14px;
+            font-weight: bold;
+            color: #ff69b4;
+        }
+        /* Voice settings panel - same style, separate overlay */
+        #voice-settings-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 10001;
+        }
+        #voice-settings-overlay.visible {
+            display: flex;
+        }
+        #voice-settings-panel {
+            background: rgba(30,30,40,0.95);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 16px;
+            padding: 24px;
+            min-width: 280px;
+            color: #ddd;
+            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+        }
+        #voice-settings-panel h3 {
+            margin: 0 0 16px 0;
+            font-size: 16px;
+            color: #fff;
+            text-align: center;
+        }
+        #voice-settings-panel label {
+            display: block;
+            font-size: 13px;
+            margin-bottom: 4px;
+            color: #aaa;
+        }
+        #voice-settings-panel .row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        #voice-settings-panel .row input[type="range"] {
+            flex: 1;
+            accent-color: #ff69b4;
+        }
+        #voice-settings-panel .row .val {
+            min-width: 36px;
+            text-align: right;
+            font-size: 14px;
+            font-weight: bold;
+            color: #ff69b4;
+        }
+        #voice-settings-panel .settings-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+        #voice-settings-panel .settings-row span {
+            font-size: 13px;
+            color: #aaa;
+        }
+        #voice-settings-panel .settings-row input[type="range"] {
+            flex: 1;
+            margin: 0 8px;
+            accent-color: #ff69b4;
+        }
+        #voice-settings-panel .settings-row .val {
+            min-width: 36px;
+            text-align: right;
+            font-size: 14px;
+            font-weight: bold;
+            color: #ff69b4;
+        }
+        #voice-settings-panel .toggle {
+            width: 44px; height: 24px;
+            border-radius: 12px;
+            background: #555;
+            cursor: pointer;
+            position: relative;
+            transition: background 0.2s;
+        }
+        #voice-settings-panel .toggle.on {
+            background: #ff69b4;
+        }
+        #voice-settings-panel .toggle::after {
+            content: '';
+            position: absolute;
+            top: 3px; left: 3px;
+            width: 18px; height: 18px;
+            border-radius: 50%;
+            background: #fff;
+            transition: transform 0.2s;
+        }
+        #voice-settings-panel .toggle.on::after {
+            transform: translateX(20px);
+        }
+        #voice-settings-panel .btn-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+        }
+        #voice-settings-panel button {
+            flex: 1;
+            padding: 8px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-family: inherit;
+        }
+        #voice-settings-panel .btn-save {
+            background: #ff69b4;
+            color: #fff;
+        }
+        #voice-settings-panel .btn-save:hover { background: #ff1493; }
+        #voice-settings-panel .btn-close {
+            background: rgba(255,255,255,0.1);
+            color: #ccc;
+        }
+        #voice-settings-panel .btn-close:hover { background: rgba(255,255,255,0.2); }
     </style>
 </head>
 <body>
@@ -277,6 +438,29 @@
         </div>
     </div>
 
+    <div id="voice-settings-overlay">
+        <div id="voice-settings-panel">
+            <h3>语音对话设置</h3>
+            <div class="settings-row">
+                <span>启用语音对话</span>
+                <div class="toggle" id="toggle-voice-enabled"></div>
+            </div>
+            <div class="settings-row">
+                <span>自动发送</span>
+                <div class="toggle on" id="toggle-voice-autosend"></div>
+            </div>
+            <label>静音阈值（<span id="val-silence">1.5</span> 秒）</label>
+            <div class="row">
+                <input type="range" id="range-silence-timeout" min="10" max="20" value="15" step="1">
+                <span class="val" id="disp-silence">1.5</span>
+            </div>
+            <div class="btn-row">
+                <button class="btn-close" id="btn-voice-settings-close">取消</button>
+                <button class="btn-save" id="btn-voice-settings-save">保存</button>
+            </div>
+        </div>
+    </div>
+
     <script src="libs/pixi.min.js"></script>
     <script src="libs/live2d.min.js"></script>
     <script src="libs/live2dcubismcore.min.js"></script>
@@ -286,6 +470,7 @@
     <script src="js/model-setup.js"></script>
     <script src="js/live2d-chat.js"></script>
     <script src="js/live2d-settings.js"></script>
+    <script src="js/live2d-voice.js"></script>
     <script src="js/live2d-actions.js"></script>
 </body>
 </html>
