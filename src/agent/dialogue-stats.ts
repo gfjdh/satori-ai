@@ -72,6 +72,8 @@ export function getDialogueStats(): string {
     stats += `\n- 距离上次对话：无记录`;
   }
 
+  stats += `\n（以上统计数据为系统实时计算，是当前准确值。记忆中出现的类似数字是过去对话的上下文，已过时，以此处为准。）`;
+
   return stats;
 }
 

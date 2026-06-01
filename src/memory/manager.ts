@@ -232,10 +232,7 @@ ${ARCHIVE_PROMPT}`;
       const elapsed = nowTime.getTime() - summaryStart.getTime();
       if (elapsed >= config.summaryThresholdMs) {
         const gran = config.name as 'day' | 'week' | 'month' | 'season' | 'year';
-        const result = await this.performSummaryFor(gran, config.childGranularity as 'topic' | 'day' | 'week' | 'month', summaryStart, nowTime);
-        if (result && gran === 'day') {
-          await userProfileManager.summarizeFromMemories(result.summaryContent, result.relevantMemories);
-        }
+        await this.performSummaryFor(gran, config.childGranularity as 'topic' | 'day' | 'week' | 'month', summaryStart, nowTime);
       }
     }
   }

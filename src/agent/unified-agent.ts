@@ -87,9 +87,9 @@ class UnifiedAgent {
       if (fullSkill) {
         triggerSkillsContext += `[触发词预加载: ${skill.name}]\n${fullSkill.content}\n\n`;
       }
-      if (skill.name === 'image-analysis') {
-        visualContext = await skillEngine.executeSkill(skill.name, { query: userInput });
-      }
+      // if (skill.name === 'image-analysis') {
+      //   visualContext = await skillEngine.executeSkill(skill.name, { query: userInput });
+      // }
     }
     // 合并触发词 skill README 到 visualContext（同属即时上下文）
     if (triggerSkillsContext) {
