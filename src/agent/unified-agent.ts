@@ -4,8 +4,6 @@
  * v6 变更：
  * - Polisher+Analyzer 双 Agent 合并为单一 ReAct 循环
  * - 使用 OpenAI 原生 function calling 替代自研文本协议
- * - 简单对话 1 次 LLM 调用，复杂对话 2 次（tool call → text generation）
- * - 移除 needDeepThink / deep_think_pending / deep_think_progress
  */
 
 import { stateManager } from '../state/manager.js';

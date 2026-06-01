@@ -133,10 +133,6 @@ export interface SubtitleEventData {
   sentenceIndex: number;
 }
 
-export interface DeepThinkPendingData {
-  value: boolean;
-}
-
 export interface ErrorEventData {
   message: string;
 }
@@ -149,7 +145,7 @@ export interface ProactiveEventData {
 
 export interface SSEMessage {
   type: SSEEventType;
-  data: VoiceEventData | AudioEventData | SubtitleEventData | DeepThinkPendingData | ErrorEventData | ProactiveEventData | Record<string, unknown>;
+  data: VoiceEventData | AudioEventData | SubtitleEventData | ErrorEventData | ProactiveEventData | Record<string, unknown>;
 }
 
 // SSE事件载荷

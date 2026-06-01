@@ -78,7 +78,7 @@ export function parseSegment(line: string): Segment | null {
           emotion: obj.emotion,
           action: obj.action || '',
           voice: obj.voice,
-          subtitle: obj.subtitle
+          subtitle: obj.subtitle || obj.voice
         };
       }
     } catch {
@@ -152,13 +152,6 @@ export function extractJSONLines(text: string): string[] {
     }
   }
   return result;
-}
-
-/**
- * 通知前端 deep_think_pending
- */
-export function sendDeepThinkPending(onSSE?: (message: any) => void): void {
-  onSSE?.({ type: 'deep_think_pending', data: { value: true } });
 }
 
 /**
