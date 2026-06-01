@@ -279,10 +279,14 @@
                 throw new Error(result.error || 'Transcription failed');
             }
 
-            // Echo to input
+            // Echo to input, with emotion context
             var inputEl = document.getElementById('chat-input');
             if (inputEl && result.text) {
-                inputEl.value = result.text;
+                var emotion = result.emotion;
+                var prefix = emotion && emotion !== 'neutral'
+                    ? '[' + emotion + '] '
+                    : '';
+                inputEl.value = prefix + result.text;
                 inputEl.dispatchEvent(new Event('input', { bubbles: true }));
                 inputEl.focus();
             }
