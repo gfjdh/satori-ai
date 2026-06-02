@@ -97,11 +97,24 @@ Push-Location $launcherDir
 # Ensure go.sum is up to date
 go mod tidy 2>&1 | Out-Null
 
+# Generate Windows resource file (icon) if .ico exists
+$icoPath = "$webuiDir\public\favicon.ico"
+if (Test-Path $icoPath) {
+    Write-Host "  Generating icon resource..." -ForegroundColor Gray
+    $rsrc = Get-Command rsrc -ErrorAction SilentlyContinue
+    if (-not $rsrc) {
+        Write-Host "  Installing rsrc tool..." -ForegroundColor Gray
+        go install github.com/akavel/rsrc@latest 2>&1 | Out-Null
+    }
+    & rsrc -ico $icoPath -o "$launcherDir\rsrc.syso" 2>&1 | Out-Null
+    Write-Host "  Icon resource generated" -ForegroundColor Gray
+}
+
 $env:GOOS = "windows"
 $env:GOARCH = "amd64"
 $env:CGO_ENABLED = "0"
 
-go build -ldflags "-s -w" -o $binaryName . 2>&1
+go build -ldflags "-s -w -H windowsgui" -o $binaryName . 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ERROR: Go build failed" -ForegroundColor Red
     Pop-Location
