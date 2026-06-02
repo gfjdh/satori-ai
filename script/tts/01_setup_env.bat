@@ -26,7 +26,15 @@ echo OK: Virtual environment ready
 
 echo.
 echo [2/2] Installing dependencies...
-call "%TTS_ROOT%\venv\Scripts\python.exe" -m pip install -r "%TTS_ROOT%\requirements.txt" -q
+echo [Info] This may take 5-15 minutes on first run (torch is ~2.5GB)...
+"%TTS_ROOT%\venv\Scripts\python.exe" -m pip install -r "%TTS_ROOT%\requirements.txt" --progress-bar on
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo ERROR: pip install failed. Try running manually to see details:
+    echo   "%TTS_ROOT%\venv\Scripts\python.exe" -m pip install -r "%TTS_ROOT%\requirements.txt"
+    pause
+    exit /b 1
+)
 echo OK: Dependencies installed
 
 echo.
