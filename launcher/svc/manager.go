@@ -145,6 +145,11 @@ func (m *Manager) Start(name string) error {
 		return fmt.Errorf("unknown service: %s", name)
 	}
 
+	// Clean up any orphan process on the target port before starting
+	if def.Port > 0 {
+		killPortOccupant(def.Port)
+	}
+
 	cmd := NewHiddenCommand(def.Shell, def.ShellArg, def.Cmd)
 	cmd.Dir = filepath.Join(m.rootDir, def.WorkDir)
 
@@ -172,6 +177,8 @@ func (m *Manager) Start(name string) error {
 		m.logCh <- LogEntry{time.Now().Format("15:04:05"), name, fmt.Sprintf("ERROR: %v", err)}
 		return err
 	}
+	// Assign child process to global Job Object so the OS kills it when we exit
+	assignToJob(cmd.Process.Pid)
 
 	rs := &runningService{
 		cmd:     cmd,
@@ -276,6 +283,11 @@ func (m *Manager) StopAll() []error {
 		if err := killProcess(rs.cmd); err != nil {
 			errs = append(errs, err)
 		}
+		// Port-based fallback kill for stubborn processes
+		def := findServiceDef(name)
+		if def != nil && def.Port > 0 {
+			killPortOccupant(def.Port)
+		}
 		delete(m.services, name)
 	}
 	m.logCh <- LogEntry{time.Now().Format("15:04:05"), "system", "all services stopped"}
@@ -329,9 +341,11 @@ func (m *Manager) InitEnvironment(names ...string) []LogEntry {
 
 		if _, err := os.Stat(filepath.Join(venvDir, "Scripts", "python.exe")); err != nil {
 			emit(def.Name, fmt.Sprintf("creating venv with %s...", filepath.Base(pythonPath)))
-			venvCmd := NewHiddenCommand(pythonPath, "-m", "virtualenv", venvDir)
+			venvCmd, venvCancel := NewHiddenCommandTimeout(3*time.Minute, pythonPath, "-m", "virtualenv", venvDir)
 			venvCmd.Env = append(venvCmd.Environ(), "PYTHONHOME="+filepath.Dir(pythonPath))
-			if out, err := venvCmd.CombinedOutput(); err != nil {
+			out, err := venvCmd.CombinedOutput()
+			venvCancel()
+			if err != nil {
 				emit(def.Name, fmt.Sprintf("venv FAILED: %s", string(out)))
 				continue
 			}
@@ -341,9 +355,11 @@ func (m *Manager) InitEnvironment(names ...string) []LogEntry {
 		pipExe := filepath.Join(venvDir, "Scripts", "pip.exe")
 		reqFile := filepath.Join(m.rootDir, def.DepsWorkDir, "requirements.txt")
 		emit(def.Name, fmt.Sprintf("pip install -r %s...", reqFile))
-		pipCmd := NewPipCommand(pipExe, "install", "-r", reqFile, "--find-links", filepath.Join(m.rootDir, "wheels"))
+		pipCmd, pipCancel := NewPipCommandTimeout(15*time.Minute, pipExe, "install", "-r", reqFile, "--find-links", filepath.Join(m.rootDir, "wheels"))
 		setPythonHomeEnv(pipCmd, venvDir)
-		if out, err := pipCmd.CombinedOutput(); err != nil {
+		out, err := pipCmd.CombinedOutput()
+		pipCancel()
+		if err != nil {
 			emit(def.Name, fmt.Sprintf("pip install FAILED: %s", string(out)))
 			continue
 		}
@@ -393,9 +409,11 @@ func (m *Manager) UpdateDeps(name string) ([]string, error) {
 				m.logCh <- LogEntry{time.Now().Format("15:04:05"), name, msg}
 				return results, fmt.Errorf("%s: %w", msg, err)
 			}
-			venvCmd := NewHiddenCommand(pythonPath, "-m", "virtualenv", venvDir)
+			venvCmd, venvCancel := NewHiddenCommandTimeout(3*time.Minute, pythonPath, "-m", "virtualenv", venvDir)
 			venvCmd.Env = append(venvCmd.Environ(), "PYTHONHOME="+filepath.Dir(pythonPath))
-			if out, err := venvCmd.CombinedOutput(); err != nil {
+			out, err := venvCmd.CombinedOutput()
+			venvCancel()
+			if err != nil {
 				msg := fmt.Sprintf("%s venv creation FAILED: %s", name, string(out))
 				results = append(results, msg)
 				m.logCh <- LogEntry{time.Now().Format("15:04:05"), name, msg}
@@ -404,9 +422,10 @@ func (m *Manager) UpdateDeps(name string) ([]string, error) {
 		}
 
 		reqFile := filepath.Join(m.rootDir, def.DepsWorkDir, "requirements.txt")
-		pipCmd := NewPipCommand(pipExe, "install", "-r", reqFile, "--find-links", filepath.Join(m.rootDir, "wheels"))
+		pipCmd, pipCancel := NewPipCommandTimeout(15*time.Minute, pipExe, "install", "-r", reqFile, "--find-links", filepath.Join(m.rootDir, "wheels"))
 		setPythonHomeEnv(pipCmd, venvDir)
 		out, err := pipCmd.CombinedOutput()
+		pipCancel()
 		if err != nil {
 			msg := fmt.Sprintf("%s pip install FAILED: %s", name, string(out))
 			results = append(results, msg)
@@ -430,16 +449,6 @@ func (m *Manager) streamLogs(service string, r io.Reader) {
 			Line:    scanner.Text(),
 		}
 	}
-}
-
-func ServiceNamesWithDeps() []string {
-	var names []string
-	for _, def := range serviceDefs {
-		if def.DepsType != "" {
-			names = append(names, def.Name)
-		}
-	}
-	return names
 }
 
 func findServiceDef(name string) *serviceDef {

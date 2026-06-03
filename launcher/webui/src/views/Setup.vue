@@ -2,16 +2,19 @@
   <div class="setup">
     <h2>初始化向导</h2>
 
-    <GuideBlock :num="1" title="安装运行环境" desc="下载 Node.js 和 Python 运行时" :done="step >= 1" :active="step === 0">
+    <GuideBlock :num="1" title="安装运行环境" desc="下载 Node.js 和 Python 运行时压缩包，然后在「环境」页面安装" :done="step >= 1" :active="step === 0">
       <div class="runtime-list">
         <div v-for="rt in runtimes" :key="rt.key" class="runtime-item">
-          <span>{{ rt.name }}</span>
-          <ProgressBar v-if="rt.downloading" :value="rt.progress" :label="rt.speed" />
-          <button v-else-if="rt.ready" class="btn-done" disabled>已安装</button>
-          <button v-else @click="downloadRuntime(rt)" class="btn-primary">下载</button>
+          <span class="rt-name">{{ rt.name }}</span>
+          <span v-if="rt.ready" class="rt-status done">已安装</span>
+          <template v-else>
+            <a class="btn-link" :href="rt.url" target="_blank">下载</a>
+            <span class="rt-hint">下载后在「环境」页面安装</span>
+          </template>
         </div>
       </div>
-      <button class="btn-primary" style="margin-top:16px" @click="step = 1" :disabled="!allRuntimesReady">
+      <router-link to="/env" class="btn-link-secondary" style="display:inline-block;margin-top:8px">前往环境页面安装</router-link>
+      <button class="btn-primary" style="margin-top:16px;margin-left:8px" @click="step = 1" :disabled="!allRuntimesReady">
         下一步：初始化环境
       </button>
     </GuideBlock>
@@ -89,20 +92,29 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive } from 'vue'
-import { apiGet, apiPost, apiSSE, apiSSEPost } from '../api.js'
+import { ref, computed, reactive, onMounted } from 'vue'
+import { apiGet, apiPost, apiSSEPost } from '../api.js'
 import GuideBlock from '../components/GuideBlock.vue'
-import ProgressBar from '../components/ProgressBar.vue'
 import LogViewer from '../components/LogViewer.vue'
 
 const step = ref(0)
 const runtimes = reactive([
-  { key: 'node', name: 'Node.js', ready: false, downloading: false, progress: 0, speed: '' },
-  { key: 'python-3.12', name: 'Python 3.12', ready: false, downloading: false, progress: 0, speed: '' },
-  { key: 'python-3.13', name: 'Python 3.13', ready: false, downloading: false, progress: 0, speed: '' },
+  { key: 'node', name: 'Node.js', url: '', ready: false },
+  { key: 'python-3.12', name: 'Python 3.12', url: '', ready: false },
+  { key: 'python-3.13', name: 'Python 3.13', url: '', ready: false },
 ])
 
 const allRuntimesReady = computed(() => runtimes.every(r => r.ready))
+
+async function loadAssetUrls() {
+  try {
+    const assets = await apiGet('/runtime/info')
+    for (const a of assets) {
+      const rt = runtimes.find(r => r.key === a.key)
+      if (rt) rt.url = a.url
+    }
+  } catch (_) {}
+}
 
 async function checkRuntimes() {
   const status = await apiGet('/runtime/status')
@@ -112,22 +124,12 @@ async function checkRuntimes() {
   if (allRuntimesReady.value && step.value === 0) step.value = 1
 }
 
-function downloadRuntime(rt) {
-  rt.downloading = true
-  rt.progress = 0
-  apiSSE(`/runtime/download/${rt.key}`, (e) => {
-    if (e.status === 'downloading') {
-      rt.progress = e.progress
-      rt.speed = e.speed || ''
-    } else if (e.status === 'done') {
-      rt.downloading = false
-      rt.ready = true
-    } else if (e.status === 'error') {
-      rt.downloading = false
-      alert('下载失败: ' + e.error)
-    }
-  })
-}
+onMounted(() => {
+  loadAssetUrls()
+  checkRuntimes()
+  loadConfig()
+  checkServices()
+})
 
 // Step 2: selective module init
 const modules = reactive([
@@ -214,9 +216,6 @@ async function checkServices() {
   allServicesRunning.value = services.every(s => s.status === 'running')
 }
 
-checkRuntimes()
-loadConfig()
-checkServices()
 </script>
 
 <style scoped>
@@ -224,7 +223,30 @@ checkServices()
 h2 { margin: 0 0 8px; }
 .runtime-list { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
 .runtime-item { display: flex; align-items: center; gap: 12px; }
-.runtime-item span { min-width: 100px; }
+.rt-name { min-width: 100px; font-weight: 500; }
+.rt-status.done { color: #10b981; font-size: 13px; }
+.rt-hint { color: #9ca3af; font-size: 12px; }
+.btn-link {
+  display: inline-block;
+  padding: 6px 14px;
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  text-decoration: none;
+  font-size: 13px;
+  cursor: pointer;
+}
+.btn-link:hover { background: #dbeafe; }
+.btn-link-secondary {
+  padding: 6px 14px;
+  background: #fff;
+  color: #6b7280;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  text-decoration: none;
+  font-size: 13px;
+}
 .module-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .module-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; cursor: pointer; }
 .module-name { font-weight: 600; flex: 1; }

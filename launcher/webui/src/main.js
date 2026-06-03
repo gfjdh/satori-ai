@@ -23,14 +23,4 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach(async (to) => {
-  if (to.name !== 'Setup') {
-    try {
-      const env = await (await fetch('/api/env')).json()
-      const hasRuntime = env.node.status === 'ok' && env.python.length > 0
-      if (!hasRuntime) return '/setup'
-    } catch (_) {}
-  }
-})
-
 createApp(App).use(router).mount('#app')

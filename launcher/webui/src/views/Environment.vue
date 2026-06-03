@@ -1,6 +1,7 @@
 <template>
   <div class="environment">
     <h2>运行环境</h2>
+    <input type="file" ref="fileInput" accept=".zip" hidden @change="onFileSelected" />
     <div class="cards">
       <div class="card">
         <h3>Node.js</h3>
@@ -9,9 +10,10 @@
           <span>{{ env.node.version || '未安装' }}</span>
           <span class="path" v-if="env.node.path">{{ env.node.path }}</span>
         </div>
-        <ProgressBar v-if="downloads['node']" :value="downloads['node'].progress" :label="downloads['node'].speed" />
-        <button v-else-if="env.node?.status === 'ok'" class="btn-done" disabled>已安装</button>
-        <button v-else @click="download('node')" class="btn-primary">一键下载</button>
+        <ProgressBar v-if="installs['node']" :value="installs['node'].progress" :label="installs['node'].status" />
+        <button v-else-if="runtimeStatus['node']" class="btn-done" disabled>已安装</button>
+        <InstallRow v-else rt-key="node" :url="assetUrl('node')" :zipPath="zipPaths.node || ''"
+          @update:zipPath="zipPaths.node = $event" @browse="browseFile('node')" @install="install('node')" />
       </div>
       <div class="card" v-for="py in env.python" :key="py.path">
         <h3>{{ py.version || 'Python' }}</h3>
@@ -23,15 +25,17 @@
       </div>
       <div class="card">
         <h3>Python 3.12 (内置)</h3>
-        <ProgressBar v-if="downloads['python-3.12']" :value="downloads['python-3.12'].progress" :label="downloads['python-3.12'].speed" />
+        <ProgressBar v-if="installs['python-3.12']" :value="installs['python-3.12'].progress" :label="installs['python-3.12'].status" />
         <button v-else-if="runtimeStatus['python-3.12']" class="btn-done" disabled>已安装</button>
-        <button v-else @click="download('python-3.12')" class="btn-primary">一键下载</button>
+        <InstallRow v-else rt-key="python-3.12" :url="assetUrl('python-3.12')" :zipPath="zipPaths['python-3.12'] || ''"
+          @update:zipPath="zipPaths['python-3.12'] = $event" @browse="browseFile('python-3.12')" @install="install('python-3.12')" />
       </div>
       <div class="card">
         <h3>Python 3.13 (内置)</h3>
-        <ProgressBar v-if="downloads['python-3.13']" :value="downloads['python-3.13'].progress" :label="downloads['python-3.13'].speed" />
+        <ProgressBar v-if="installs['python-3.13']" :value="installs['python-3.13'].progress" :label="installs['python-3.13'].status" />
         <button v-else-if="runtimeStatus['python-3.13']" class="btn-done" disabled>已安装</button>
-        <button v-else @click="download('python-3.13')" class="btn-primary">一键下载</button>
+        <InstallRow v-else rt-key="python-3.13" :url="assetUrl('python-3.13')" :zipPath="zipPaths['python-3.13'] || ''"
+          @update:zipPath="zipPaths['python-3.13'] = $event" @browse="browseFile('python-3.13')" @install="install('python-3.13')" />
       </div>
       <div class="card">
         <h3>Git</h3>
@@ -47,36 +51,89 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { apiGet, apiSSE } from '../api.js'
+import { apiGet, apiSSEPost } from '../api.js'
 import ProgressBar from '../components/ProgressBar.vue'
+import InstallRow from '../components/InstallRow.vue'
 
 const env = ref({})
 const runtimeStatus = reactive({})
-const downloads = reactive({})
+const installs = reactive({})
+const zipPaths = reactive({})
+const assetUrls = ref({})
+const fileInput = ref(null)
+let currentBrowseKey = ''
+
+function assetUrl(key) {
+  return assetUrls.value[key] || ''
+}
 
 async function refresh() {
   try { env.value = await apiGet('/env') } catch (_) {}
   try { Object.assign(runtimeStatus, await apiGet('/runtime/status')) } catch (_) {}
 }
 
-function download(key) {
-  downloads[key] = { progress: 0, speed: '' }
-  apiSSE(`/runtime/download/${key}`, (e) => {
-    if (e.status === 'downloading') {
-      downloads[key].progress = e.progress
-      downloads[key].speed = e.speed || ''
+async function loadAssetUrls() {
+  try {
+    const assets = await apiGet('/runtime/info')
+    for (const a of assets) {
+      assetUrls.value[a.key] = a.url
+    }
+  } catch (_) {}
+}
+
+function browseFile(key) {
+  currentBrowseKey = key
+  fileInput.value?.click()
+}
+
+async function onFileSelected(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  const key = currentBrowseKey
+  currentBrowseKey = ''
+
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await fetch('/api/upload/temp', { method: 'POST', body: formData })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || res.statusText)
+    if (data.path) {
+      zipPaths[key] = data.path
+    }
+  } catch (e) {
+    console.error('upload failed:', e)
+    alert('文件上传失败: ' + (e.message || '未知错误'))
+  }
+  // Reset file input so the same file can be re-selected
+  fileInput.value.value = ''
+}
+
+function install(key) {
+  if (!zipPaths[key]) return
+  installs[key] = { progress: 0, status: '准备中...' }
+  apiSSEPost('/runtime/install/' + key, { path: zipPaths[key] }, (e) => {
+    if (e.status === 'extracting') {
+      installs[key].progress = e.progress
+      installs[key].status = '解压中...'
+    } else if (e.status === 'setting-up') {
+      installs[key].progress = e.progress
+      installs[key].status = '配置中...'
     } else if (e.status === 'done') {
-      delete downloads[key]
+      delete installs[key]
       runtimeStatus[key] = true
       refresh()
     } else if (e.status === 'error') {
-      delete downloads[key]
-      alert('下载失败: ' + e.error)
+      delete installs[key]
+      alert('安装失败: ' + e.error)
     }
   })
 }
 
-onMounted(refresh)
+onMounted(() => {
+  refresh()
+  loadAssetUrls()
+})
 </script>
 
 <style scoped>

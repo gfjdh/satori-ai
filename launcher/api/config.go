@@ -80,10 +80,14 @@ func (s *Server) handleConfigPost(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "shutting down"})
-	go func() {
-		s.mgr.StopAll()
-		os.Exit(0)
-	}()
+
+	// Flush the response before stopping services and exiting.
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+
+	s.mgr.StopAll()
+	os.Exit(0)
 }
 
 func readLLMConfig(rootDir string) llmConfig {

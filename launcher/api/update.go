@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"satori-launcher/svc"
 	"strings"
+	"time"
 )
 
 func (s *Server) handleProjectStatus(w http.ResponseWriter, r *http.Request) {
@@ -84,15 +85,17 @@ func (s *Server) handleProjectInit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
-	cmd := svc.NewHiddenCommand("git", "fetch", "gitee")
+	cmd, cancel := svc.NewHiddenCommandTimeout(5*time.Minute, "git", "fetch", "gitee")
 	cmd.Dir = s.rootDir
 	if out, err := cmd.CombinedOutput(); err != nil {
+		cancel()
 		writeError(w, http.StatusInternalServerError, "git fetch: "+string(out))
 		return
 	}
+	cancel()
 
-	cmd = svc.NewHiddenCommand("git", "rev-list", "--count", "HEAD..gitee/main")
-	cmd.Dir = s.rootDir
+	cmd2 := svc.NewHiddenCommand("git", "rev-list", "--count", "HEAD..gitee/main")
+	cmd2.Dir = s.rootDir
 	out, err := cmd.Output()
 	behind := "0"
 	if err == nil {
@@ -111,7 +114,8 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
-	cmd := svc.NewHiddenCommand("git", "pull", "gitee", "main")
+	cmd, cancel := svc.NewHiddenCommandTimeout(5*time.Minute, "git", "pull", "gitee", "main")
+	defer cancel()
 	cmd.Dir = s.rootDir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		writeError(w, http.StatusInternalServerError, "git pull: "+string(out))
