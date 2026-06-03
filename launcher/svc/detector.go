@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"golang.org/x/sys/windows/registry"
@@ -26,71 +27,44 @@ type EnvInfo struct {
 }
 
 type EnvResult struct {
-	Node    EnvInfo   `json:"node"`
-	Python  []EnvInfo `json:"python"`
-	Git     EnvInfo   `json:"git"`
+	Node   EnvInfo   `json:"node"`
+	Python []EnvInfo `json:"python"`
+	Git    EnvInfo   `json:"git"`
 }
 
-func DetectAll() EnvResult {
+func DetectAll(rootDir string) EnvResult {
 	return EnvResult{
-		Node:   detectNode(),
-		Python: detectPythonVersions(),
+		Node:   detectNode(rootDir),
+		Python: detectPythonVersions(rootDir),
 		Git:    detectGit(),
 	}
 }
 
-func FindBestPython(minMinor, maxMinor int) (string, error) {
-	versions := detectPythonVersions()
-	for _, v := range versions {
-		if v.Status != EnvOK {
-			continue
+func detectNode(rootDir string) EnvInfo {
+	// 1. bundled runtime
+	bundled := filepath.Join(rootDir, "runtime", "node", "node.exe")
+	if v, err := runVersion(bundled, "-v"); err == nil {
+		return EnvInfo{Status: EnvOK, Version: v, Path: bundled}
+	}
+
+	// 2. system PATH
+	if p, err := exec.LookPath("node"); err == nil {
+		if v, err := runVersion(p, "-v"); err == nil {
+			return EnvInfo{Status: EnvOK, Version: v, Path: p}
 		}
-		minor := parseMinorVersion(v.Version)
-		if minor >= minMinor && minor <= maxMinor {
-			return v.Path, nil
+		return EnvInfo{Status: EnvOK, Path: p}
+	}
+
+	// 3. registry
+	if p := findNodeInRegistry(); p != "" {
+		exe := filepath.Join(p, "node.exe")
+		if v, err := runVersion(exe, "-v"); err == nil {
+			return EnvInfo{Status: EnvOK, Version: v, Path: exe}
 		}
-	}
-	return "", fmt.Errorf("no Python %d.x found", minMinor)
-}
-
-func parseMinorVersion(ver string) int {
-	// "Python 3.12.7" -> 12
-	parts := strings.Split(strings.TrimSpace(ver), ".")
-	if len(parts) < 2 {
-		return 0
-	}
-	// Get the second component (e.g., "12" from "3.12.7")
-	majorMinor := strings.Split(parts[0], " ")
-	minorStr := ""
-	if len(majorMinor) >= 2 {
-		minorStr = majorMinor[1]
-	}
-	if minorStr == "" {
-		minorStr = parts[1]
-	}
-	var minor int
-	fmt.Sscanf(minorStr, "%d", &minor)
-	return minor
-}
-
-func detectNode() EnvInfo {
-	path, err := exec.LookPath("node")
-	if err != nil {
-		path = findNodeInRegistry()
-		if path == "" {
-			return EnvInfo{
-				Status: EnvMissing,
-				Hint:   "https://nodejs.org/ - download LTS version",
-			}
-		}
+		return EnvInfo{Status: EnvOK, Path: exe}
 	}
 
-	ver, err := runVersion(path, "--version")
-	if err != nil {
-		return EnvInfo{Status: EnvError, Path: path}
-	}
-
-	return EnvInfo{Status: EnvOK, Version: strings.TrimSpace(ver), Path: path}
+	return EnvInfo{Status: EnvMissing, Hint: "https://nodejs.org/dist/v22.22.3/node-v22.22.3-x64.msi"}
 }
 
 func findNodeInRegistry() string {
@@ -99,142 +73,201 @@ func findNodeInRegistry() string {
 		return ""
 	}
 	defer k.Close()
-
-	v, _, err := k.GetStringValue("InstallPath")
-	if err != nil {
-		return ""
-	}
-	return v + `\node.exe`
+	path, _, _ := k.GetStringValue("InstallPath")
+	return path
 }
 
-func detectPythonVersions() []EnvInfo {
+func detectPythonVersions(rootDir string) []EnvInfo {
 	var result []EnvInfo
-	seen := make(map[string]bool)
 
-	// 1. Scan registry for all Python installations
-	registryPythons := findAllPythonInRegistry()
-	for _, p := range registryPythons {
-		if seen[p] {
-			continue
+	// 1. bundled runtimes
+	for _, v := range []struct{ minor, max int }{
+		{12, 12}, {13, 13},
+	} {
+		p := runtimePythonPath(rootDir, v.minor, v.max)
+		if p != "" {
+			if ver, err := runVersion(p, "--version"); err == nil {
+				result = append(result, EnvInfo{Status: EnvOK, Version: ver, Path: p})
+			}
 		}
-		seen[p] = true
-		ver, err := runVersion(p, "--version")
-		if err != nil {
-			result = append(result, EnvInfo{Status: EnvError, Path: p})
-			continue
-		}
-		result = append(result, EnvInfo{Status: EnvOK, Version: strings.TrimSpace(ver), Path: p})
 	}
 
-	// 2. Also check PATH for python/python3 (skip Windows Store stubs)
+	// 2. registry
+	for _, p := range findAllPythonInRegistry() {
+		if ver, err := runVersion(p, "--version"); err == nil {
+			// skip duplicates (same path)
+			dup := false
+			for _, r := range result {
+				if r.Path == p {
+					dup = true
+					break
+				}
+			}
+			if !dup {
+				result = append(result, EnvInfo{Status: EnvOK, Version: ver, Path: p})
+			}
+		}
+	}
+
+	// 3. PATH
 	for _, name := range []string{"python", "python3"} {
-		path, err := exec.LookPath(name)
+		p, err := exec.LookPath(name)
 		if err != nil {
 			continue
 		}
-		// Skip WindowsApps store stubs — they don't work for venv/pip
-		if strings.Contains(path, "WindowsApps") {
+		// skip WindowsApps stubs
+		if strings.Contains(strings.ToLower(p), "windowsapps") {
 			continue
 		}
-		resolved, err := filepath.EvalSymlinks(path)
-		if err == nil {
-			path = resolved
+		if ver, err := runVersion(p, "--version"); err == nil {
+			dup := false
+			for _, r := range result {
+				if r.Path == p {
+					dup = true
+					break
+				}
+			}
+			if !dup {
+				result = append(result, EnvInfo{Status: EnvOK, Version: ver, Path: p})
+			}
 		}
-		if seen[path] {
-			continue
-		}
-		seen[path] = true
-		ver, err := runVersion(path, "--version")
-		if err != nil {
-			result = append(result, EnvInfo{Status: EnvError, Path: path})
-			continue
-		}
-		result = append(result, EnvInfo{Status: EnvOK, Version: strings.TrimSpace(ver), Path: path})
 	}
 
-	// 3. Check common install locations as fallback
-	commonDirs := []string{
-		os.ExpandEnv(`C:\Python312\python.exe`),
-		os.ExpandEnv(`C:\Python313\python.exe`),
-		os.ExpandEnv(`C:\Users\$USERNAME\AppData\Local\Programs\Python\Python312\python.exe`),
-		os.ExpandEnv(`C:\Users\$USERNAME\AppData\Local\Programs\Python\Python313\python.exe`),
-	}
-	for _, p := range commonDirs {
-		p = os.ExpandEnv(strings.Replace(p, "$USERNAME", os.Getenv("USERNAME"), 1))
-		if seen[p] {
-			continue
+	// 4. common locations
+	for _, loc := range []string{
+		`C:\Python312\python.exe`,
+		`C:\Python313\python.exe`,
+		os.ExpandEnv(`%LOCALAPPDATA%\Programs\Python\Python312\python.exe`),
+		os.ExpandEnv(`%LOCALAPPDATA%\Programs\Python\Python313\python.exe`),
+	} {
+		if _, err := os.Stat(loc); err == nil {
+			if ver, err := runVersion(loc, "--version"); err == nil {
+				dup := false
+				for _, r := range result {
+					if r.Path == loc {
+						dup = true
+						break
+					}
+				}
+				if !dup {
+					result = append(result, EnvInfo{Status: EnvOK, Version: ver, Path: loc})
+				}
+			}
 		}
-		if _, err := os.Stat(p); err != nil {
-			continue
-		}
-		seen[p] = true
-		ver, err := runVersion(p, "--version")
-		if err != nil {
-			result = append(result, EnvInfo{Status: EnvError, Path: p})
-			continue
-		}
-		result = append(result, EnvInfo{Status: EnvOK, Version: strings.TrimSpace(ver), Path: p})
 	}
 
 	if len(result) == 0 {
-		result = append(result, EnvInfo{
-			Status: EnvMissing,
-			Hint:   "https://www.python.org/downloads/ - check 'Add Python to PATH' during install",
-		})
+		result = append(result, EnvInfo{Status: EnvMissing, Hint: "需要 Python 3.12 和/或 3.13"})
 	}
 
 	return result
 }
 
-func findAllPythonInRegistry() []string {
-	var paths []string
+func FindBestPython(rootDir string, minMinor, maxMinor int) (string, error) {
+	// 1. bundled runtime first
+	if p := runtimePythonPath(rootDir, minMinor, maxMinor); p != "" {
+		return p, nil
+	}
 
-	for _, root := range []registry.Key{registry.LOCAL_MACHINE, registry.CURRENT_USER} {
-		k, err := registry.OpenKey(root, `SOFTWARE\Python\PythonCore`, registry.ENUMERATE_SUB_KEYS)
-		if err != nil {
+	// 2. detected versions — pick highest compatible minor
+	all := detectPythonVersions(rootDir)
+	var best string
+	bestMinor := 0
+	for _, info := range all {
+		if info.Status != EnvOK {
 			continue
 		}
-		names, err := k.ReadSubKeyNames(0)
-		k.Close()
-		if err != nil {
+		m := parseMinorVersion(info.Version)
+		if m == 0 {
 			continue
 		}
-		for _, name := range names {
-			ik, err := registry.OpenKey(root, `SOFTWARE\Python\PythonCore\`+name+`\InstallPath`, registry.QUERY_VALUE)
-			if err != nil {
-				continue
-			}
-			// Try ExecutablePath first, then default value
-			v, _, err := ik.GetStringValue("ExecutablePath")
-			if err != nil || v == "" {
-				v, _, err = ik.GetStringValue("")
-			}
-			ik.Close()
-			if v != "" {
-				if !strings.HasSuffix(v, ".exe") {
-					v = filepath.Join(v, "python.exe")
+		if m >= minMinor && (maxMinor == 0 || m <= maxMinor) && m > bestMinor {
+			bestMinor = m
+			best = info.Path
+		}
+	}
+	if best != "" {
+		return best, nil
+	}
+
+	return "", fmt.Errorf("no Python found matching 3.%d (max=%d)", minMinor, maxMinor)
+}
+
+func runtimePythonPath(rootDir string, minMinor, maxMinor int) string {
+	start := maxMinor
+	if start == 0 {
+		start = 14
+	}
+	for minor := start; minor >= minMinor; minor-- {
+		dir := filepath.Join(rootDir, "runtime", fmt.Sprintf("python-3.%d", minor))
+		exe := filepath.Join(dir, "python.exe")
+		if _, err := os.Stat(exe); err == nil {
+			if ver, err := runVersion(exe, "--version"); err == nil {
+				m := parseMinorVersion(ver)
+				if m >= minMinor && (maxMinor == 0 || m <= maxMinor) {
+					return exe
 				}
-				paths = append(paths, v)
 			}
 		}
 	}
-	return paths
+	return ""
 }
 
 func detectGit() EnvInfo {
-	path, err := exec.LookPath("git")
-	if err != nil {
-		return EnvInfo{
-			Status: EnvMissing,
-			Hint:   "https://git-scm.com/download/win",
+	if p, err := exec.LookPath("git"); err == nil {
+		if v, err := runVersion(p, "--version"); err == nil {
+			return EnvInfo{Status: EnvOK, Version: v, Path: p}
+		}
+		return EnvInfo{Status: EnvOK, Path: p}
+	}
+	return EnvInfo{Status: EnvMissing, Hint: "https://github.com/git-for-windows/git/releases/download/v2.54.0.windows.1/Git-2.54.0-64-bit.exe"}
+}
+
+func parseMinorVersion(ver string) int {
+	// "Python 3.12.7" → 12
+	fields := strings.Fields(ver)
+	if len(fields) < 2 {
+		return 0
+	}
+	parts := strings.Split(fields[1], ".")
+	if len(parts) < 2 {
+		return 0
+	}
+	m, _ := strconv.Atoi(parts[1])
+	return m
+}
+
+func findAllPythonInRegistry() []string {
+	var paths []string
+	for _, root := range []registry.Key{registry.LOCAL_MACHINE, registry.CURRENT_USER} {
+		core, err := registry.OpenKey(root, `SOFTWARE\Python\PythonCore`, registry.ENUMERATE_SUB_KEYS)
+		if err != nil {
+			continue
+		}
+		subKeys, err := core.ReadSubKeyNames(-1)
+		core.Close()
+		if err != nil {
+			continue
+		}
+		for _, sk := range subKeys {
+			k, err := registry.OpenKey(root, `SOFTWARE\Python\PythonCore\`+sk+`\InstallPath`, registry.QUERY_VALUE)
+			if err != nil {
+				continue
+			}
+			p, _, err := k.GetStringValue("ExecutablePath")
+			if err != nil {
+				p, _, err = k.GetStringValue("") // default value
+				if err != nil {
+					k.Close()
+					continue
+				}
+				p = filepath.Join(p, "python.exe")
+			}
+			k.Close()
+			paths = append(paths, p)
 		}
 	}
-
-	ver, err := runVersion(path, "--version")
-	if err != nil {
-		return EnvInfo{Status: EnvError, Path: path}
-	}
-	return EnvInfo{Status: EnvOK, Version: strings.TrimSpace(ver), Path: path}
+	return paths
 }
 
 func runVersion(exe, flag string) (string, error) {
@@ -243,5 +276,5 @@ func runVersion(exe, flag string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return string(out), nil
+	return strings.TrimSpace(string(out)), nil
 }

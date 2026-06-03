@@ -1,69 +1,78 @@
 package main
 
 import (
+	"context"
 	"embed"
-	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
-
 	"satori-launcher/api"
-	"satori-launcher/svc"
+	"syscall"
+	"time"
 )
 
 //go:embed webui/dist/*
-var webuiFS embed.FS
+var webuiDist embed.FS
 
 func main() {
-	exePath, _ := os.Executable()
-	rootDir := filepath.Dir(exePath)
+	rootDir, _ := os.Getwd()
 
-	// If running from source (go run), use current directory
-	if _, err := os.Stat(filepath.Join(rootDir, "package.json")); err != nil {
-		cwd, _ := os.Getwd()
-		if _, err := os.Stat(filepath.Join(cwd, "package.json")); err == nil {
-			rootDir = cwd
-		}
+	srv := api.NewServer(rootDir)
+	handler := srv.Routes()
+
+	distFS, err := fs.Sub(webuiDist, "webui/dist")
+	if err != nil {
+		panic("embedded webui/dist not found: " + err.Error())
 	}
-
-	mgr := svc.NewManager(rootDir)
-	server := api.NewServer(mgr)
 
 	mux := http.NewServeMux()
+	mux.Handle("/api/", handler)
+	mux.Handle("/", http.FileServer(http.FS(distFS)))
 
-	// API routes
-	mux.Handle("/api/", server.Handler())
-
-	// Serve embedded webui
-	webuiDist, err := fs.Sub(webuiFS, "webui/dist")
-	if err != nil {
-		fmt.Printf("Warning: webui not embedded, using dev mode\n")
-	} else {
-		mux.Handle("/", http.FileServer(http.FS(webuiDist)))
+	httpSrv := &http.Server{
+		Addr:    ":9527",
+		Handler: mux,
 	}
 
-	port := "9527"
-	fmt.Printf("Satori Launcher starting on http://localhost:%s\n", port)
+	go func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		<-sigCh
+		srv.Manager().StopAll()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		httpSrv.Shutdown(ctx)
+		os.Exit(0)
+	}()
 
-	// Open browser
-	go openBrowser(fmt.Sprintf("http://localhost:%s", port))
+	go openBrowser("http://localhost:9527")
 
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
-		fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
-		os.Exit(1)
+	if err := httpSrv.ListenAndServe(); err != http.ErrServerClosed {
+		panic(err)
 	}
 }
 
 func openBrowser(url string) {
+	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+		cmd = exec.Command("cmd", "/c", "start", url)
 	case "darwin":
-		exec.Command("open", url).Start()
+		cmd = exec.Command("open", url)
 	default:
-		exec.Command("xdg-open", url).Start()
+		cmd = exec.Command("xdg-open", url)
+	}
+	cmd.Start()
+}
+
+func init() {
+	exe, _ := os.Executable()
+	dir := filepath.Dir(exe)
+	if dir != "." {
+		os.Chdir(dir)
 	}
 }

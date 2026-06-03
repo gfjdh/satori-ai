@@ -31,6 +31,7 @@ dist/
 **/output/
 **/out/
 **/.pid
+pkg/
 
 # 忽略数据目录
 data/

@@ -2,11 +2,15 @@ package svc
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -19,22 +23,59 @@ const (
 	StatusError   ServiceStatus = "error"
 )
 
+var ErrAlreadyRunning = errors.New("service already running")
+
 type ServiceInfo struct {
-	Name      string        `json:"name"`
-	Port      int           `json:"port"`
-	Status    ServiceStatus `json:"status"`
-	PID       int           `json:"pid,omitempty"`
-	Uptime    string        `json:"uptime,omitempty"`
-	Cmd       string        `json:"cmd"`
-	WorkDir   string        `json:"workDir"`
-	PythonVer string        `json:"pythonVer,omitempty"`
-	StartOrder int          `json:"startOrder"`
+	Name       string        `json:"name"`
+	Port       int           `json:"port"`
+	Status     ServiceStatus `json:"status"`
+	PID        int           `json:"pid,omitempty"`
+	Uptime     string        `json:"uptime,omitempty"`
+	Cmd        string        `json:"cmd"`
+	WorkDir    string        `json:"workDir"`
+	StartOrder int           `json:"startOrder"`
 }
 
 type LogEntry struct {
 	Time    string `json:"time"`
 	Service string `json:"service"`
 	Line    string `json:"line"`
+}
+
+type serviceDef struct {
+	Name     string
+	Port     int
+	Cmd      string
+	WorkDir  string
+	Shell    string
+	ShellArg string
+
+	StartOrder     int
+	MinPythonMinor int
+	MaxPythonMinor int
+	DepsType       string
+	DepsWorkDir    string
+}
+
+func (d *serviceDef) pythonRequirement() string {
+	if d.MinPythonMinor == 0 && d.MaxPythonMinor == 0 {
+		return ""
+	}
+	if d.MinPythonMinor == d.MaxPythonMinor {
+		return fmt.Sprintf("Python 3.%d", d.MinPythonMinor)
+	}
+	return fmt.Sprintf("Python 3.%d - 3.%d", d.MinPythonMinor, d.MaxPythonMinor)
+}
+
+var serviceDefs = []serviceDef{
+	{Name: "TTS", Port: 5030, Cmd: `venv\Scripts\python.exe app.py`, WorkDir: `services\tts`, Shell: "cmd", ShellArg: "/c", StartOrder: 10, MinPythonMinor: 12, MaxPythonMinor: 13, DepsType: "pip", DepsWorkDir: `services\tts`},
+	{Name: "Embedding", Port: 7860, Cmd: `venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 7860`, WorkDir: `services\embedding`, Shell: "cmd", ShellArg: "/c", StartOrder: 20, MinPythonMinor: 12, MaxPythonMinor: 13, DepsType: "pip", DepsWorkDir: `services\embedding`},
+	{Name: "Image", Port: 8742, Cmd: `venv\Scripts\python.exe -m uvicorn app:app --host 0.0.0.0 --port 8742`, WorkDir: `services\image`, Shell: "cmd", ShellArg: "/c", StartOrder: 30, MinPythonMinor: 12, MaxPythonMinor: 13, DepsType: "pip", DepsWorkDir: `services\image`},
+	{Name: "Browser", Port: 8743, Cmd: `venv\Scripts\python.exe server.py`, WorkDir: `services\browser`, Shell: "cmd", ShellArg: "/c", StartOrder: 40, MinPythonMinor: 12, MaxPythonMinor: 13, DepsType: "pip", DepsWorkDir: `services\browser`},
+	{Name: "ASR", Port: 5032, Cmd: `venv\Scripts\python.exe app.py`, WorkDir: `services\asr`, Shell: "cmd", ShellArg: "/c", StartOrder: 50, MinPythonMinor: 12, MaxPythonMinor: 12, DepsType: "pip", DepsWorkDir: `services\asr`},
+	{Name: "WebUI", Port: 5173, Cmd: "node serve.cjs", WorkDir: "webui", Shell: "cmd", ShellArg: "/c", StartOrder: 60},
+	{Name: "Backend", Port: 3682, Cmd: "node dist/index.js", WorkDir: ".", Shell: "cmd", ShellArg: "/c", StartOrder: 70},
+	{Name: "Live2D", Port: 0, Cmd: `pythonw.exe live2d-launcher.py`, WorkDir: `live2d-widget`, Shell: "cmd", ShellArg: "/c", StartOrder: 80},
 }
 
 type Manager struct {
@@ -58,12 +99,11 @@ func NewManager(rootDir string) *Manager {
 	}
 }
 
-func (m *Manager) RootDir() string {
-	return m.rootDir
-}
+func (m *Manager) RootDir() string           { return m.rootDir }
+func (m *Manager) LogChannel() <-chan LogEntry { return m.logCh }
 
-func (m *Manager) LogChannel() <-chan LogEntry {
-	return m.logCh
+func (m *Manager) Log(service, line string) {
+	m.logCh <- LogEntry{Time: time.Now().Format("15:04:05"), Service: service, Line: line}
 }
 
 func (m *Manager) AllServices() []ServiceInfo {
@@ -81,12 +121,10 @@ func (m *Manager) AllServices() []ServiceInfo {
 				Status:     StatusStopped,
 				Cmd:        def.Cmd,
 				WorkDir:    def.WorkDir,
-				PythonVer:  def.pythonRequirement(),
 				StartOrder: def.StartOrder,
 			})
 		}
 	}
-	// Sort by start order
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].StartOrder < result[j].StartOrder
 	})
@@ -96,11 +134,9 @@ func (m *Manager) AllServices() []ServiceInfo {
 func (m *Manager) Start(name string) error {
 	m.mu.Lock()
 
-	if rs, ok := m.services[name]; ok {
-		if isAlive(rs.cmd) {
-			m.mu.Unlock()
-			return fmt.Errorf("%s is already running", name)
-		}
+	if rs, ok := m.services[name]; ok && isAlive(rs.cmd) {
+		m.mu.Unlock()
+		return fmt.Errorf("%s: %w", name, ErrAlreadyRunning)
 	}
 
 	def := findServiceDef(name)
@@ -109,11 +145,27 @@ func (m *Manager) Start(name string) error {
 		return fmt.Errorf("unknown service: %s", name)
 	}
 
-	cmd := exec.Command(def.Shell, def.ShellArg, def.Cmd)
-	cmd.Dir = m.rootDir + "\\" + def.WorkDir
+	cmd := NewHiddenCommand(def.Shell, def.ShellArg, def.Cmd)
+	cmd.Dir = filepath.Join(m.rootDir, def.WorkDir)
 
-	stdout, _ := cmd.StdoutPipe()
-	stderr, _ := cmd.StderrPipe()
+	// Set PYTHONHOME for Python venv-based services
+	if strings.Contains(def.Cmd, "venv") && strings.Contains(def.Cmd, "python") {
+		venvDir := filepath.Join(m.rootDir, def.WorkDir, "venv")
+		if _, err := os.Stat(filepath.Join(venvDir, "pyvenv.cfg")); err == nil {
+			setPythonHomeEnv(cmd, venvDir)
+		}
+	}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		m.mu.Unlock()
+		return fmt.Errorf("stdout pipe: %w", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		m.mu.Unlock()
+		return fmt.Errorf("stderr pipe: %w", err)
+	}
 
 	if err := cmd.Start(); err != nil {
 		m.mu.Unlock()
@@ -131,7 +183,6 @@ func (m *Manager) Start(name string) error {
 			PID:        cmd.Process.Pid,
 			Cmd:        def.Cmd,
 			WorkDir:    def.WorkDir,
-			PythonVer:  def.pythonRequirement(),
 			StartOrder: def.StartOrder,
 		},
 	}
@@ -140,7 +191,6 @@ func (m *Manager) Start(name string) error {
 
 	go m.streamLogs(name, stdout)
 	go m.streamLogs(name, stderr)
-
 	m.logCh <- LogEntry{time.Now().Format("15:04:05"), name, fmt.Sprintf("started (PID: %d)", cmd.Process.Pid)}
 
 	go func() {
@@ -180,10 +230,7 @@ func (m *Manager) Stop(name string) error {
 	return nil
 }
 
-// StartAll starts services sequentially in order: microservices → WebUI → Backend → Live2D.
-// Each service gets a 3s gap to avoid CPU contention.
 func (m *Manager) StartAll() []error {
-	// Sort defs by StartOrder
 	ordered := make([]serviceDef, len(serviceDefs))
 	copy(ordered, serviceDefs)
 	sort.Slice(ordered, func(i, j int) bool {
@@ -192,7 +239,6 @@ func (m *Manager) StartAll() []error {
 
 	var errs []error
 	for i, def := range ordered {
-		// Skip if already running
 		m.mu.Lock()
 		_, running := m.services[def.Name]
 		m.mu.Unlock()
@@ -205,8 +251,7 @@ func (m *Manager) StartAll() []error {
 			fmt.Sprintf("starting %s (%d/%d)...", def.Name, i+1, len(ordered))}
 
 		if err := m.Start(def.Name); err != nil {
-			// If the error is "already running", don't treat as failure
-			if err.Error() == def.Name+" is already running" {
+			if errors.Is(err, ErrAlreadyRunning) {
 				continue
 			}
 			errs = append(errs, err)
@@ -215,12 +260,10 @@ func (m *Manager) StartAll() []error {
 			continue
 		}
 
-		// Wait between services (except after the last one)
 		if i < len(ordered)-1 {
 			time.Sleep(3 * time.Second)
 		}
 	}
-
 	return errs
 }
 
@@ -239,68 +282,135 @@ func (m *Manager) StopAll() []error {
 	return errs
 }
 
-func (m *Manager) InitEnvironment() []LogEntry {
-	m.logCh <- LogEntry{time.Now().Format("15:04:05"), "system", "Initializing environment..."}
-
-	cmd := exec.Command("cmd", "/c", m.rootDir+`\script\00_setup_all.bat`)
-	cmd.Dir = m.rootDir
-
-	stdout, _ := cmd.StdoutPipe()
-	stderr, _ := cmd.StderrPipe()
-	cmd.Start()
-
+func (m *Manager) InitEnvironment(names ...string) []LogEntry {
 	var logs []LogEntry
-	scanner := bufio.NewScanner(io.MultiReader(stdout, stderr))
-	startTime := time.Now()
-	for scanner.Scan() {
-		line := scanner.Text()
-		entry := LogEntry{time.Now().Format("15:04:05"), "setup", line}
+	emit := func(service, line string) {
+		entry := LogEntry{time.Now().Format("15:04:05"), service, line}
 		logs = append(logs, entry)
 		m.logCh <- entry
 	}
 
-	cmd.Wait()
-	m.logCh <- LogEntry{time.Now().Format("15:04:05"), "system",
-		fmt.Sprintf("environment initialization complete (took %v)", time.Since(startTime).Round(time.Second))}
+	// Build filter set — if empty, init all with deps
+	filter := make(map[string]bool)
+	if len(names) > 0 {
+		for _, n := range names {
+			filter[n] = true
+		}
+	}
+
+	emit("system", "Initializing environment...")
+	startTime := time.Now()
+
+	// Find best Python for general microservices (3.12-3.13)
+	generalPy, err := FindBestPython(m.rootDir, 12, 13)
+	if err != nil {
+		emit("system", fmt.Sprintf("FATAL: %v", err))
+		return logs
+	}
+	emit("system", fmt.Sprintf("Using Python: %s", generalPy))
+
+	// Create venvs and install pip deps for selected Python microservices
+	for _, def := range serviceDefs {
+		if def.DepsType != "pip" {
+			continue
+		}
+		if len(filter) > 0 && !filter[def.Name] {
+			emit(def.Name, "skipped")
+			continue
+		}
+
+		venvDir := filepath.Join(m.rootDir, def.DepsWorkDir, "venv")
+		pythonPath := generalPy
+		if def.MinPythonMinor == def.MaxPythonMinor {
+			if p, err := FindBestPython(m.rootDir, def.MinPythonMinor, def.MaxPythonMinor); err == nil {
+				pythonPath = p
+			}
+		}
+
+		if _, err := os.Stat(filepath.Join(venvDir, "Scripts", "python.exe")); err != nil {
+			emit(def.Name, fmt.Sprintf("creating venv with %s...", filepath.Base(pythonPath)))
+			venvCmd := NewHiddenCommand(pythonPath, "-m", "virtualenv", venvDir)
+			venvCmd.Env = append(venvCmd.Environ(), "PYTHONHOME="+filepath.Dir(pythonPath))
+			if out, err := venvCmd.CombinedOutput(); err != nil {
+				emit(def.Name, fmt.Sprintf("venv FAILED: %s", string(out)))
+				continue
+			}
+			emit(def.Name, "venv created")
+		}
+
+		pipExe := filepath.Join(venvDir, "Scripts", "pip.exe")
+		reqFile := filepath.Join(m.rootDir, def.DepsWorkDir, "requirements.txt")
+		emit(def.Name, fmt.Sprintf("pip install -r %s...", reqFile))
+		pipCmd := NewPipCommand(pipExe, "install", "-r", reqFile)
+		setPythonHomeEnv(pipCmd, venvDir)
+		if out, err := pipCmd.CombinedOutput(); err != nil {
+			emit(def.Name, fmt.Sprintf("pip install FAILED: %s", string(out)))
+			continue
+		}
+		emit(def.Name, "pip install OK")
+	}
+
+	emit("system", fmt.Sprintf("environment initialization complete (took %v)", time.Since(startTime).Round(time.Second)))
 	return logs
 }
 
-// UpdateDeps updates dependencies for a specific service
 func (m *Manager) UpdateDeps(name string) ([]string, error) {
 	def := findServiceDef(name)
 	if def == nil {
 		return nil, fmt.Errorf("unknown service: %s", name)
 	}
-
 	if def.DepsType == "" {
 		return []string{fmt.Sprintf("%s has no dependency manager", name)}, nil
 	}
 
 	m.logCh <- LogEntry{time.Now().Format("15:04:05"), name, "updating dependencies..."}
 	startTime := time.Now()
-
 	var results []string
+
 	switch def.DepsType {
 	case "npm":
-		npmInstall := exec.Command("npm", "install")
-		npmInstall.Dir = m.rootDir + "\\" + def.DepsWorkDir
-		out, err := npmInstall.CombinedOutput()
+		npmDir := filepath.Join(m.rootDir, def.DepsWorkDir)
+		npmCmd := NewNpmCommand("install")
+		npmCmd.Dir = npmDir
+		out, err := npmCmd.CombinedOutput()
 		if err != nil {
-			errMsg := fmt.Sprintf("%s npm install FAILED: %s", name, string(out))
-			results = append(results, errMsg)
-			m.logCh <- LogEntry{time.Now().Format("15:04:05"), name, errMsg}
+			msg := fmt.Sprintf("%s npm install FAILED: %s", name, string(out))
+			results = append(results, msg)
+			m.logCh <- LogEntry{time.Now().Format("15:04:05"), name, msg}
 			return results, err
 		}
 		results = append(results, fmt.Sprintf("%s npm install OK", name))
 
 	case "pip":
-		reqFile := m.rootDir + "\\" + def.DepsWorkDir + "\\requirements.txt"
-		pip := exec.Command(m.rootDir+"\\"+def.DepsWorkDir+`\venv\Scripts\pip.exe`, "install", "-r", reqFile)
-		out, err := pip.CombinedOutput()
+		venvDir := filepath.Join(m.rootDir, def.DepsWorkDir, "venv")
+		pipExe := filepath.Join(venvDir, "Scripts", "pip.exe")
+
+		if _, err := os.Stat(pipExe); err != nil {
+			pythonPath, err := FindBestPython(m.rootDir, def.MinPythonMinor, def.MaxPythonMinor)
+			if err != nil {
+				msg := fmt.Sprintf("%s needs Python %s but not found", name, def.pythonRequirement())
+				results = append(results, msg)
+				m.logCh <- LogEntry{time.Now().Format("15:04:05"), name, msg}
+				return results, fmt.Errorf("%s: %w", msg, err)
+			}
+			venvCmd := NewHiddenCommand(pythonPath, "-m", "virtualenv", venvDir)
+			venvCmd.Env = append(venvCmd.Environ(), "PYTHONHOME="+filepath.Dir(pythonPath))
+			if out, err := venvCmd.CombinedOutput(); err != nil {
+				msg := fmt.Sprintf("%s venv creation FAILED: %s", name, string(out))
+				results = append(results, msg)
+				m.logCh <- LogEntry{time.Now().Format("15:04:05"), name, msg}
+				return results, err
+			}
+		}
+
+		reqFile := filepath.Join(m.rootDir, def.DepsWorkDir, "requirements.txt")
+		pipCmd := NewPipCommand(pipExe, "install", "-r", reqFile)
+		setPythonHomeEnv(pipCmd, venvDir)
+		out, err := pipCmd.CombinedOutput()
 		if err != nil {
-			errMsg := fmt.Sprintf("%s pip install FAILED: %s", name, string(out))
-			results = append(results, errMsg)
-			m.logCh <- LogEntry{time.Now().Format("15:04:05"), name, errMsg}
+			msg := fmt.Sprintf("%s pip install FAILED: %s", name, string(out))
+			results = append(results, msg)
+			m.logCh <- LogEntry{time.Now().Format("15:04:05"), name, msg}
 			return results, err
 		}
 		results = append(results, fmt.Sprintf("%s pip install OK", name))
@@ -308,7 +418,6 @@ func (m *Manager) UpdateDeps(name string) ([]string, error) {
 
 	m.logCh <- LogEntry{time.Now().Format("15:04:05"), name,
 		fmt.Sprintf("dependencies updated (took %v)", time.Since(startTime).Round(time.Second))}
-
 	return results, nil
 }
 
@@ -323,43 +432,14 @@ func (m *Manager) streamLogs(service string, r io.Reader) {
 	}
 }
 
-type serviceDef struct {
-	Name           string
-	Port           int
-	Cmd            string
-	WorkDir        string
-	Shell          string
-	ShellArg       string
-	StartOrder     int    // lower = started first; sequential in StartAll
-	MinPythonMinor int    // minimum Python minor version needed (0 = any)
-	MaxPythonMinor int    // maximum Python minor version (0 = no upper bound)
-	DepsType       string // "npm", "pip", or "" for none
-	DepsWorkDir    string // relative path for dep install (defaults to WorkDir)
-}
-
-func (d *serviceDef) pythonRequirement() string {
-	if d.MinPythonMinor == 0 && d.MaxPythonMinor == 0 {
-		return ""
+func ServiceNamesWithDeps() []string {
+	var names []string
+	for _, def := range serviceDefs {
+		if def.DepsType != "" {
+			names = append(names, def.Name)
+		}
 	}
-	if d.MinPythonMinor == d.MaxPythonMinor {
-		return fmt.Sprintf("Python 3.%d.x", d.MinPythonMinor)
-	}
-	if d.MaxPythonMinor > 0 {
-		return fmt.Sprintf("Python 3.%d - 3.%d", d.MinPythonMinor, d.MaxPythonMinor)
-	}
-	return fmt.Sprintf("Python 3.%d+", d.MinPythonMinor)
-}
-
-// Start order: microservices (10-50) → WebUI (60) → Backend (70) → Live2D (80)
-var serviceDefs = []serviceDef{
-	{Name: "TTS",       Port: 5030, Cmd: `venv\Scripts\python.exe app.py`, WorkDir: `services\tts`, Shell: "cmd", ShellArg: "/c", StartOrder: 10, DepsType: "pip", DepsWorkDir: `services\tts`},
-	{Name: "Embedding", Port: 7860, Cmd: `venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 7860`, WorkDir: `services\embedding`, Shell: "cmd", ShellArg: "/c", StartOrder: 20, DepsType: "pip", DepsWorkDir: `services\embedding`},
-	{Name: "Image",     Port: 8742, Cmd: `venv\Scripts\python.exe -m uvicorn app:app --host 0.0.0.0 --port 8742`, WorkDir: `services\image`, Shell: "cmd", ShellArg: "/c", StartOrder: 30, DepsType: "pip", DepsWorkDir: `services\image`},
-	{Name: "Browser",   Port: 8743, Cmd: `venv\Scripts\python.exe server.py`, WorkDir: `services\browser`, Shell: "cmd", ShellArg: "/c", StartOrder: 40, DepsType: "pip", DepsWorkDir: `services\browser`},
-	{Name: "ASR",       Port: 5032, Cmd: `venv\Scripts\python.exe app.py`, WorkDir: `services\asr`, Shell: "cmd", ShellArg: "/c", StartOrder: 50, MinPythonMinor: 12, MaxPythonMinor: 12, DepsType: "pip", DepsWorkDir: `services\asr`},
-	{Name: "WebUI",     Port: 5173, Cmd: "npm run dev", WorkDir: "webui", Shell: "cmd", ShellArg: "/c", StartOrder: 60, DepsType: "npm", DepsWorkDir: "webui"},
-	{Name: "Backend",   Port: 3682, Cmd: "npm run dev", WorkDir: ".", Shell: "cmd", ShellArg: "/c", StartOrder: 70, DepsType: "npm", DepsWorkDir: "."},
-	{Name: "Live2D",    Port: 0,    Cmd: `pythonw.exe live2d-launcher.py`, WorkDir: `live2d-widget`, Shell: "cmd", ShellArg: "/c", StartOrder: 80},
+	return names
 }
 
 func findServiceDef(name string) *serviceDef {
@@ -375,18 +455,36 @@ func isAlive(cmd *exec.Cmd) bool {
 	if cmd.Process == nil {
 		return false
 	}
-	out, err := exec.Command("tasklist", "/FI", "PID eq "+strconv.Itoa(cmd.Process.Pid), "/NH").Output()
+	out, err := NewHiddenCommand("tasklist", "/FI", "PID eq "+strconv.Itoa(cmd.Process.Pid), "/NH").Output()
 	if err != nil {
 		return false
 	}
 	return len(out) > 0 && out[0] != 'I'
 }
 
+// setPythonHomeEnv reads the venv's pyvenv.cfg to find the base Python home
+// directory and sets PYTHONHOME on the command. This prevents embedded Python
+// from leaking system Python paths (registry/baked-in) that cause DLL mismatches
+// and segfaults, while preserving CWD in sys.path[0] (unlike a ._pth file).
+func setPythonHomeEnv(cmd *exec.Cmd, venvDir string) {
+	cfg, err := os.ReadFile(filepath.Join(venvDir, "pyvenv.cfg"))
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(cfg), "\n") {
+		if strings.HasPrefix(line, "home = ") {
+			home := strings.TrimSpace(strings.TrimPrefix(line, "home = "))
+			cmd.Env = append(cmd.Environ(), "PYTHONHOME="+home)
+			return
+		}
+	}
+}
+
 func killProcess(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return nil
 	}
-	treeKill := exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(cmd.Process.Pid))
+	treeKill := NewHiddenCommand("taskkill", "/F", "/T", "/PID", strconv.Itoa(cmd.Process.Pid))
 	treeKill.Stdout = nil
 	treeKill.Stderr = nil
 	return treeKill.Run()
