@@ -65,8 +65,6 @@ function migrateToUTC8(): void {
   console.log('[DB] Timezone migrated to UTC+8.');
 }
 
-migrateToUTC8();
-
 // ========== 初始化表结构 ==========
 db.exec(`
   -- 对话原始记录表
@@ -144,6 +142,8 @@ try { db.exec(`ALTER TABLE memories ADD COLUMN user_state TEXT`);} catch { /* �
 
 // 迁移：添加 character_id 列
 try { db.exec(`ALTER TABLE dialogues ADD COLUMN character_id TEXT`);} catch { /* 列已存在，忽略 */ }
+
+migrateToUTC8();
 
 // ========== 对话操作 ==========
 export const dialogueDb = {

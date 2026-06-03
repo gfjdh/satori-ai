@@ -3,8 +3,8 @@ package api
 import (
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"satori-launcher/svc"
 	"strings"
 )
 
@@ -22,7 +22,7 @@ func (s *Server) handleProjectStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cmd := exec.Command("git", "branch", "--show-current")
+	cmd := svc.NewHiddenCommand("git", "branch", "--show-current")
 	cmd.Dir = s.rootDir
 	out, err := cmd.Output()
 	branch := "unknown"
@@ -30,7 +30,7 @@ func (s *Server) handleProjectStatus(w http.ResponseWriter, r *http.Request) {
 		branch = strings.TrimSpace(string(out))
 	}
 
-	cmd = exec.Command("git", "remote", "get-url", "gitee")
+	cmd = svc.NewHiddenCommand("git", "remote", "get-url", "gitee")
 	cmd.Dir = s.rootDir
 	out, err = cmd.Output()
 	remote := ""
@@ -61,7 +61,7 @@ func (s *Server) handleProjectInit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cmd := exec.Command("git", "init")
+	cmd := svc.NewHiddenCommand("git", "init")
 	cmd.Dir = s.rootDir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		writeError(w, http.StatusInternalServerError, "git init: "+string(out))
@@ -69,13 +69,13 @@ func (s *Server) handleProjectInit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if body.GiteeURL != "" {
-		cmd = exec.Command("git", "remote", "add", "gitee", body.GiteeURL)
+		cmd = svc.NewHiddenCommand("git", "remote", "add", "gitee", body.GiteeURL)
 		cmd.Dir = s.rootDir
 		cmd.CombinedOutput()
 	}
 
 	if body.GithubURL != "" {
-		cmd = exec.Command("git", "remote", "add", "github", body.GithubURL)
+		cmd = svc.NewHiddenCommand("git", "remote", "add", "github", body.GithubURL)
 		cmd.Dir = s.rootDir
 		cmd.CombinedOutput()
 	}
@@ -84,14 +84,14 @@ func (s *Server) handleProjectInit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
-	cmd := exec.Command("git", "fetch", "gitee")
+	cmd := svc.NewHiddenCommand("git", "fetch", "gitee")
 	cmd.Dir = s.rootDir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		writeError(w, http.StatusInternalServerError, "git fetch: "+string(out))
 		return
 	}
 
-	cmd = exec.Command("git", "rev-list", "--count", "HEAD..gitee/main")
+	cmd = svc.NewHiddenCommand("git", "rev-list", "--count", "HEAD..gitee/main")
 	cmd.Dir = s.rootDir
 	out, err := cmd.Output()
 	behind := "0"
@@ -99,7 +99,7 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 		behind = strings.TrimSpace(string(out))
 	}
 
-	cmd = exec.Command("git", "log", "gitee/main", "--oneline", "-5")
+	cmd = svc.NewHiddenCommand("git", "log", "gitee/main", "--oneline", "-5")
 	cmd.Dir = s.rootDir
 	out, _ = cmd.Output()
 
@@ -111,7 +111,7 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
-	cmd := exec.Command("git", "pull", "gitee", "main")
+	cmd := svc.NewHiddenCommand("git", "pull", "gitee", "main")
 	cmd.Dir = s.rootDir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		writeError(w, http.StatusInternalServerError, "git pull: "+string(out))

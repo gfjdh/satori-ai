@@ -341,7 +341,7 @@ func (m *Manager) InitEnvironment(names ...string) []LogEntry {
 		pipExe := filepath.Join(venvDir, "Scripts", "pip.exe")
 		reqFile := filepath.Join(m.rootDir, def.DepsWorkDir, "requirements.txt")
 		emit(def.Name, fmt.Sprintf("pip install -r %s...", reqFile))
-		pipCmd := NewPipCommand(pipExe, "install", "-r", reqFile)
+		pipCmd := NewPipCommand(pipExe, "install", "-r", reqFile, "--find-links", filepath.Join(m.rootDir, "wheels"))
 		setPythonHomeEnv(pipCmd, venvDir)
 		if out, err := pipCmd.CombinedOutput(); err != nil {
 			emit(def.Name, fmt.Sprintf("pip install FAILED: %s", string(out)))
@@ -404,7 +404,7 @@ func (m *Manager) UpdateDeps(name string) ([]string, error) {
 		}
 
 		reqFile := filepath.Join(m.rootDir, def.DepsWorkDir, "requirements.txt")
-		pipCmd := NewPipCommand(pipExe, "install", "-r", reqFile)
+		pipCmd := NewPipCommand(pipExe, "install", "-r", reqFile, "--find-links", filepath.Join(m.rootDir, "wheels"))
 		setPythonHomeEnv(pipCmd, venvDir)
 		out, err := pipCmd.CombinedOutput()
 		if err != nil {

@@ -6,11 +6,11 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
 	"satori-launcher/api"
+	"satori-launcher/svc"
 	"syscall"
 	"time"
 )
@@ -57,16 +57,14 @@ func main() {
 }
 
 func openBrowser(url string) {
-	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", url)
+		svc.NewHiddenCommand("cmd", "/c", "start", url).Start()
 	case "darwin":
-		cmd = exec.Command("open", url)
+		svc.NewHiddenCommand("open", url).Start()
 	default:
-		cmd = exec.Command("xdg-open", url)
+		svc.NewHiddenCommand("xdg-open", url).Start()
 	}
-	cmd.Start()
 }
 
 func init() {

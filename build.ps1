@@ -172,13 +172,16 @@ if (-not (Test-Path "$root\webui\dist")) { throw "webui/dist/ not found. Run wit
 Copy-Item -Recurse "$root\webui\dist\" "$pkg\webui\dist\"
 Copy-Item "$root\webui\serve.cjs" "$pkg\webui\serve.cjs" -ErrorAction SilentlyContinue
 
-# Copy Python services (source only, no venv)
+# Copy Python services (source only, no venv/cache/models)
 Write-Host "  Copying services/..."
-Copy-Item -Recurse "$root\services\" "$pkg\services\"
-# Exclude: venv, caches, model weights (downloaded at runtime from ModelScope)
+# robocopy with /XD excludes entire directory subtrees at source — never touches venv
 $excludeDirs = @("venv", "__pycache__", "pretrained_models", "models", ".lock", "output", "gpt_sovits")
-foreach ($dir in $excludeDirs) {
-    Get-ChildItem -Recurse -Directory -Path "$pkg\services" -Filter $dir -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+foreach ($svc in Get-ChildItem -Path "$root\services" -Directory) {
+    $srcSvc = $svc.FullName
+    $dstSvc = "$pkg\services\$($svc.Name)"
+    $xdArgs = ($excludeDirs | ForEach-Object { "/XD", $_ })
+    robocopy $srcSvc $dstSvc /E /NFL /NDL /NJH /NJS $xdArgs
+    if ($LASTEXITCODE -ge 8) { throw "robocopy failed for $($svc.Name)" }
 }
 # Also strip any ModelScope-downloaded model dirs (iic_* pattern)
 Get-ChildItem -Recurse -Directory -Path "$pkg\services" -Filter "iic_*" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
@@ -191,6 +194,28 @@ Get-ChildItem -Recurse -Directory -Path "$pkg\live2d-widget" -Filter "__pycache_
 # Empty character-cards directory
 Write-Host "  Creating character-cards/..."
 New-Item -Force -ItemType Directory "$pkg\character-cards" | Out-Null
+
+# Prebuild C-extension wheels (pyopenjtalk, jieba-fast — no prebuilt wheels on PyPI)
+Write-Host "  Building precompiled wheels..."
+$wheelsDir = "$pkg\wheels"
+New-Item -Force -ItemType Directory $wheelsDir | Out-Null
+$ttsVenv = "$root\services\tts\venv\Scripts\python.exe"
+if (Test-Path $ttsVenv) {
+    Write-Host "    Building cp313 wheels via TTS venv..."
+    $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    & $ttsVenv -m pip wheel pyopenjtalk==0.4.1 jieba-fast==0.53 -w $wheelsDir --no-deps 2>&1 | Out-Null
+    $ErrorActionPreference = $prevEAP
+    if ($LASTEXITCODE -ne 0) { Write-Host "    WARNING: cp313 wheel build failed" -ForegroundColor Yellow }
+}
+$asrVenv = "$root\services\asr\venv\Scripts\python.exe"
+if (Test-Path $asrVenv) {
+    Write-Host "    Building cp312 wheels via ASR venv..."
+    $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    & $asrVenv -m pip wheel jieba-fast==0.53 -w $wheelsDir --no-deps 2>&1 | Out-Null
+    $ErrorActionPreference = $prevEAP
+    if ($LASTEXITCODE -ne 0) { Write-Host "    WARNING: cp312 wheel build failed" -ForegroundColor Yellow }
+}
+Write-Host "    Done" -ForegroundColor Green
 
 # Config files
 Write-Host "  Copying config files..."

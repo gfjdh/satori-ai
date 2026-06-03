@@ -271,7 +271,7 @@ func findAllPythonInRegistry() []string {
 }
 
 func runVersion(exe, flag string) (string, error) {
-	cmd := exec.Command(exe, flag)
+	cmd := NewHiddenCommand(exe, flag)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err
