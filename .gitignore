@@ -18,6 +18,7 @@ full-hub/rag-hub
 full-hub/tts-hub
 character-cards/*
 **/models/
+.VSCodeCounter/
 
 # 忽略所有 node_modules（无论在哪）
 **/node_modules/

@@ -1,0 +1,323 @@
+# Satori AI Build Script
+# Assembles the full distribution package: pkg/Satori-AI/
+param(
+    [switch]$SkipBackend,
+    [switch]$SkipWebUI,
+    [switch]$SkipLauncher,
+    [switch]$NoZip
+)
+
+$ErrorActionPreference = "Stop"
+$projectRoot = $PSScriptRoot
+$pkgDir = Join-Path $projectRoot "pkg\Satori-AI"
+
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host " Satori AI - Build Pipeline" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host ""
+
+# ============================================================
+# Step 0: Build Backend (TypeScript → dist/)
+# ============================================================
+if (-not $SkipBackend) {
+    Write-Host "--- Step 0: Build Backend ---" -ForegroundColor Yellow
+    Push-Location $projectRoot
+    try {
+        Write-Host "  esbuild src/index.ts → dist/index.js"
+        npx esbuild src/index.ts --bundle --platform=node --outfile=dist/index.js --format=cjs
+        if ($LASTEXITCODE -ne 0) { throw "esbuild failed" }
+
+        # Clean dev artifacts
+        Get-ChildItem dist -Filter *.d.ts -Recurse | Remove-Item -Force
+        Get-ChildItem dist -Filter *.map -Recurse | Remove-Item -Force
+        Write-Host "  Backend build OK" -ForegroundColor Green
+    } finally {
+        Pop-Location
+    }
+}
+
+# ============================================================
+# Step 1: Build Satori WebUI (Vue 3 → webui/dist/)
+# ============================================================
+if (-not $SkipWebUI) {
+    Write-Host "--- Step 1: Build Satori WebUI ---" -ForegroundColor Yellow
+    Push-Location (Join-Path $projectRoot "webui")
+    try {
+        Write-Host "  npm run build"
+        npm run build
+        if ($LASTEXITCODE -ne 0) { throw "Vite build failed" }
+        if (-not (Test-Path "serve.cjs")) {
+            Write-Warning "  serve.cjs not found in webui/, copying from launcher template..."
+            Copy-Item (Join-Path $projectRoot "launcher\webui\serve.cjs") "serve.cjs" -ErrorAction SilentlyContinue
+        }
+        Write-Host "  WebUI build OK" -ForegroundColor Green
+    } finally {
+        Pop-Location
+    }
+}
+
+# ============================================================
+# Step 2: Build Launcher (WebUI Vite + Go build)
+# ============================================================
+if (-not $SkipLauncher) {
+    Write-Host "--- Step 2: Build Launcher ---" -ForegroundColor Yellow
+
+    # 2a: Launcher WebUI
+    $launcherWebUI = Join-Path $projectRoot "launcher\webui"
+    if (Test-Path (Join-Path $launcherWebUI "package.json")) {
+        Push-Location $launcherWebUI
+        try {
+            Write-Host "  npm install"
+            npm install
+            Write-Host "  npm run build"
+            npm run build
+            if ($LASTEXITCODE -ne 0) { throw "Launcher WebUI build failed" }
+            Write-Host "  Launcher WebUI build OK" -ForegroundColor Green
+        } finally {
+            Pop-Location
+        }
+    }
+
+    # 2b: Go build
+    $launcherDir = Join-Path $projectRoot "launcher"
+    Write-Host "  go build -o Satori-Launcher.exe"
+    Push-Location $launcherDir
+    try {
+        $webuiDist = Join-Path $launcherDir "webui\dist"
+        if (-not (Test-Path (Join-Path $webuiDist "index.html"))) {
+            Write-Warning "  Launcher webui/dist/ not found, creating placeholder..."
+            New-Item -ItemType Directory -Force -Path $webuiDist | Out-Null
+            "<html><body><h1>Satori Launcher</h1></body></html>" | Out-File -FilePath (Join-Path $webuiDist "index.html") -Encoding utf8
+        }
+        go mod tidy
+        go build -ldflags "-s -w -H windowsgui" -o Satori-Launcher.exe .
+        if ($LASTEXITCODE -ne 0) { throw "Go build failed" }
+        Write-Host "  Launcher build OK ($((Get-Item Satori-Launcher.exe).Length / 1MB) MB)" -ForegroundColor Green
+    } finally {
+        Pop-Location
+    }
+}
+
+# ============================================================
+# Step 3: Assemble pkg/Satori-AI/
+# ============================================================
+Write-Host "--- Step 3: Assemble pkg/Satori-AI/ ---" -ForegroundColor Yellow
+
+# 3.1: Prepare pkg directory (preserve runtime/ and wheels/ if they exist)
+if (-not (Test-Path $pkgDir)) {
+    New-Item -ItemType Directory -Force -Path $pkgDir | Out-Null
+}
+$preserveDirs = @("runtime", "wheels")
+# Clean pkg (skip preserved dirs in-place — never move, zero data-loss risk)
+Get-ChildItem $pkgDir | ForEach-Object {
+    if ($preserveDirs -notcontains $_.Name) {
+        Remove-Item -Recurse -Force $_.FullName
+    }
+}
+
+# 3.2: Copy Launcher exe
+Write-Host "  Copying Satori-Launcher.exe..."
+Copy-Item (Join-Path $projectRoot "launcher\Satori-Launcher.exe") $pkgDir
+
+# 3.3: Copy backend dist/
+Write-Host "  Copying dist/..."
+$distSrc = Join-Path $projectRoot "dist"
+if (Test-Path $distSrc) {
+    robocopy $distSrc (Join-Path $pkgDir "dist") /E /NFL /NDL /NJH /NJS /XF *.d.ts *.map
+}
+
+# 3.4: Copy package.json + .env.example (must precede npm install)
+Write-Host "  Copying config files..."
+Copy-Item (Join-Path $projectRoot "package.json") $pkgDir -Force
+$envExample = Join-Path $projectRoot ".env.example"
+if (Test-Path $envExample) {
+    Copy-Item $envExample $pkgDir -Force
+} else {
+    @"
+# LLM API
+LLM_API_KEY=sk-your-key-here
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=gpt-4
+LLM_TEMPERATURE=0.7
+
+# Vision LLM
+VISION_LLM_API_KEY=sk-your-key-here
+VISION_LLM_BASE_URL=https://api.openai.com/v1
+VISION_LLM_MODEL=gpt-4-vision-preview
+VISION_LLM_TEMPERATURE=0.7
+
+# Server
+PORT=3682
+
+# Browser
+BROWSER_HEADLESS=false
+
+# Character
+CURRENT_CHARACTER_ID=satori
+
+# TTS / ASR
+TTS_SERVICE_HOST=127.0.0.1
+TTS_SERVICE_PORT=5030
+ASR_SERVICE_HOST=127.0.0.1
+ASR_SERVICE_PORT=5032
+"@ | Out-File -FilePath (Join-Path $pkgDir ".env.example") -Encoding utf8
+}
+
+# 3.5: Install better-sqlite3 native module matching bundled Node runtime
+Write-Host "  Installing better-sqlite3 for bundled Node..."
+$bundledNode = Join-Path $pkgDir "runtime\node\node.exe"
+$bundledNpm = Join-Path $pkgDir "runtime\node\node_modules\npm\bin\npm-cli.js"
+
+if ((Test-Path $bundledNode) -and (Test-Path $bundledNpm)) {
+    Push-Location $pkgDir
+    try {
+        # prebuild-install fetches the correct prebuilt binary for bundled Node version
+        & $bundledNode $bundledNpm install better-sqlite3
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "  better-sqlite3 install failed - backend may not start with bundled Node"
+        } else {
+            # Copy .node to pkg root build/Release/ where esbuild-bundled bindings resolves it
+            $bs3Node = Join-Path $pkgDir "node_modules\better-sqlite3\build\Release\better_sqlite3.node"
+            $pkgBuildRelease = Join-Path $pkgDir "build\Release"
+            if (Test-Path $bs3Node) {
+                New-Item -ItemType Directory -Force -Path $pkgBuildRelease | Out-Null
+                Copy-Item $bs3Node $pkgBuildRelease -Force
+                Write-Host "    better-sqlite3 ready for bundled Node" -ForegroundColor Green
+            } else {
+                Write-Warning "  better-sqlite3.node not found after install"
+            }
+            # npm install side-effects cleanup: node_modules/ is dead weight
+            # - better-sqlite3 JS is already bundled into dist/index.js by esbuild
+            # - bindings resolves .node from ./build/Release/ (relative to package.json root)
+            # - package-lock.json is also npm artifact, not needed at runtime
+            Remove-Item -Recurse -Force (Join-Path $pkgDir "node_modules") -ErrorAction SilentlyContinue
+            Remove-Item -Force (Join-Path $pkgDir "package-lock.json") -ErrorAction SilentlyContinue
+            Write-Host "    Cleaned npm artifacts (node_modules + package-lock.json)" -ForegroundColor Green
+        }
+    } finally {
+        Pop-Location
+    }
+} else {
+    Write-Warning "  Bundled Node/npm not found, skipping better-sqlite3 setup"
+}
+
+# 3.6: Copy webui/dist/ + serve.cjs
+Write-Host "  Copying webui/..."
+$webuiSrc = Join-Path $projectRoot "webui"
+if (Test-Path $webuiSrc) {
+    $webuiDst = Join-Path $pkgDir "webui"
+    New-Item -ItemType Directory -Force -Path $webuiDst | Out-Null
+    Copy-Item (Join-Path $webuiSrc "dist") $webuiDst -Recurse -Force
+    if (Test-Path (Join-Path $webuiSrc "serve.cjs")) {
+        Copy-Item (Join-Path $webuiSrc "serve.cjs") $webuiDst
+    }
+}
+
+# 3.7: Copy services/
+Write-Host "  Copying services/..."
+$svcSrc = Join-Path $projectRoot "services"
+$svcDst = Join-Path $pkgDir "services"
+robocopy $svcSrc $svcDst /E /NFL /NDL /NJH /NJS /XD venv __pycache__ pretrained_models models .lock output packages
+
+# 3.8: Copy TTS checkpoint files
+Write-Host "  Copying TTS checkpoints..."
+$ttsCheckpoints = @(
+    "services\tts\pretrained_models\s2D488k.pth",
+    "services\tts\pretrained_models\s2G488k.pth",
+    "services\tts\pretrained_models\s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt"
+)
+foreach ($cp in $ttsCheckpoints) {
+    $cpSrc = Join-Path $projectRoot $cp
+    if (Test-Path $cpSrc) {
+        $cpDst = Join-Path $pkgDir $cp
+        $cpParent = Split-Path $cpDst -Parent
+        New-Item -ItemType Directory -Force -Path $cpParent | Out-Null
+        Copy-Item $cpSrc $cpDst -Force
+        Write-Host "    $(Split-Path $cp -Leaf)"
+    }
+}
+
+# 3.9: Copy live2d-widget/
+Write-Host "  Copying live2d-widget/..."
+$l2dSrc = Join-Path $projectRoot "live2d-widget"
+$l2dDst = Join-Path $pkgDir "live2d-widget"
+robocopy $l2dSrc $l2dDst /E /NFL /NDL /NJH /NJS /XD __pycache__
+
+# 3.10: Copy character-cards/
+Write-Host "  Copying character-cards/..."
+$ccSrc = Join-Path $projectRoot "character-cards"
+if (Test-Path $ccSrc) {
+    robocopy $ccSrc (Join-Path $pkgDir "character-cards") /E /NFL /NDL /NJH /NJS
+}
+
+# 3.11: Copy script/deploy/*.bat → script/ (overwrites old dev scripts)
+Write-Host "  Copying script/*.bat..."
+$scriptDeploySrc = Join-Path $projectRoot "script\deploy"
+$scriptDst = Join-Path $pkgDir "script"
+New-Item -ItemType Directory -Force -Path $scriptDst | Out-Null
+if (Test-Path $scriptDeploySrc) {
+    Copy-Item (Join-Path $scriptDeploySrc "*-setup.bat") $scriptDst -Force -ErrorAction SilentlyContinue
+    Copy-Item (Join-Path $scriptDeploySrc "*-start.bat") $scriptDst -Force -ErrorAction SilentlyContinue
+}
+
+# 3.12: Runtime activation (first-time setup)
+Write-Host "  Checking runtime/..."
+$runtimeDir = Join-Path $pkgDir "runtime"
+if (-not (Test-Path $runtimeDir)) {
+    Write-Warning "  runtime/ directory not found. It should be pre-built separately."
+    Write-Warning "  See launcher/docs/launcher-requirements.md section on embedded Python activation."
+}
+
+# Install setuptools+wheel into embedded Pythons (required for source builds)
+foreach ($pyVer in @("3.13", "3.12")) {
+    $pyExe = Join-Path $pkgDir "runtime\python-$pyVer\python.exe"
+    if (Test-Path $pyExe) {
+        Write-Host "  Installing setuptools+wheel into Python $pyVer..."
+        & $pyExe -m pip install --no-cache-dir setuptools wheel 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "  setuptools install failed for Python $pyVer"
+        }
+    }
+}
+
+# 3.13: Build C extension wheels
+Write-Host "  Building C extension wheels..."
+$wheelsDst = Join-Path $pkgDir "wheels"
+New-Item -ItemType Directory -Force -Path $wheelsDst | Out-Null
+
+$py313 = Join-Path $pkgDir "runtime\python-3.13\python.exe"
+if (Test-Path $py313) {
+    Write-Host "    pyopenjtalk + jieba-fast (cp313)..."
+    & $py313 -m pip wheel pyopenjtalk==0.4.1 jieba-fast==0.53 -w $wheelsDst --no-deps
+} else {
+    Write-Warning "  Python 3.13 runtime not found, skipping cp313 wheel build"
+}
+
+$py312 = Join-Path $pkgDir "runtime\python-3.12\python.exe"
+if (Test-Path $py312) {
+    Write-Host "    jieba-fast (cp312)..."
+    & $py312 -m pip wheel jieba-fast==0.53 -w $wheelsDst --no-deps
+    Write-Host "    jieba (cp312)..."
+    & $py312 -m pip wheel jieba==0.42.1 -w $wheelsDst --no-deps
+} else {
+    Write-Warning "  Python 3.12 runtime not found, skipping cp312 wheel build"
+}
+
+# 3.14: Package Playwright Chromium
+Write-Host "  Checking Playwright browsers..."
+$pwDst = Join-Path $pkgDir "playwright-browsers"
+if (-not (Test-Path $pwDst)) {
+    $msPlaywright = Join-Path $env:USERPROFILE "AppData\Local\ms-playwright"
+    if (Test-Path $msPlaywright) {
+        Write-Host "    Copying from $msPlaywright..."
+        robocopy $msPlaywright $pwDst /E /NFL /NDL /NJH /NJS
+    } else {
+        Write-Warning "  ms-playwright not found. Run 'playwright install chromium' first."
+    }
+}
+
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host " Build Complete!" -ForegroundColor Green
+Write-Host " Output: $pkgDir" -ForegroundColor Green
+Write-Host "========================================" -ForegroundColor Cyan
