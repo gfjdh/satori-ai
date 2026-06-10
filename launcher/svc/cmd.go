@@ -99,12 +99,16 @@ func KillProcess(pid int) error {
 }
 
 func ProcessExists(pid int) bool {
-	cmd := NewHiddenCommand("tasklist", "/FI", fmt.Sprintf("PID eq %d", pid), "/NH")
-	out, err := cmd.Output()
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
 	if err != nil {
 		return false
 	}
-	return len(out) > 0 && out[0] != 'I' // "INFO: No tasks..."
+	defer windows.CloseHandle(h)
+	var exitCode uint32
+	if err := windows.GetExitCodeProcess(h, &exitCode); err != nil {
+		return false
+	}
+	return exitCode == 259 // STILL_ACTIVE
 }
 
 func KillPortOccupant(port int) error {

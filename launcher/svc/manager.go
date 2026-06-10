@@ -27,6 +27,7 @@ const (
 type ServiceDef struct {
 	Name          string `json:"name"`
 	Port          int    `json:"port"`
+	HealthPath    string `json:"-"`
 	SetupScript   string `json:"-"`
 	StartScript   string `json:"-"`
 	StartOrder    int    `json:"-"`
@@ -52,13 +53,13 @@ func NewManager(rootDir string) *Manager {
 		rootDir: rootDir,
 		states:  make(map[string]*ServiceState),
 		svcDefs: []ServiceDef{
-			{Name: "Embedding", Port: 7860, SetupScript: "script/embedding-setup.bat", StartScript: "script/embedding-start.bat", StartOrder: 1, SetupSentinel: "services/embedding/.setup_done", RuntimeLabel: "Python 3.13"},
-			{Name: "TTS", Port: 5030, SetupScript: "script/tts-setup.bat", StartScript: "script/tts-start.bat", StartOrder: 2, SetupSentinel: "services/tts/.setup_done", RuntimeLabel: "Python 3.13"},
-			{Name: "ASR", Port: 5032, SetupScript: "script/asr-setup.bat", StartScript: "script/asr-start.bat", StartOrder: 3, SetupSentinel: "services/asr/.setup_done", RuntimeLabel: "Python 3.12"},
-			{Name: "Image", Port: 8742, SetupScript: "script/image-setup.bat", StartScript: "script/image-start.bat", StartOrder: 4, SetupSentinel: "services/image/.setup_done", RuntimeLabel: "Python 3.13"},
-			{Name: "Browser", Port: 8743, SetupScript: "script/browser-setup.bat", StartScript: "script/browser-start.bat", StartOrder: 5, SetupSentinel: "services/browser/.setup_done", RuntimeLabel: "Python 3.13"},
-			{Name: "Backend", Port: 3682, SetupScript: "script/backend-setup.bat", StartScript: "script/backend-start.bat", StartOrder: 6, SetupSentinel: "dist/.setup_done", RuntimeLabel: "Node.js"},
-			{Name: "WebUI", Port: 5173, SetupScript: "script/webui-setup.bat", StartScript: "script/webui-start.bat", StartOrder: 7, SetupSentinel: "webui/.setup_done", RuntimeLabel: "Node.js"},
+			{Name: "Embedding", Port: 7860, HealthPath: "/health", SetupScript: "script/embedding-setup.bat", StartScript: "script/embedding-start.bat", StartOrder: 1, SetupSentinel: "services/embedding/.setup_done", RuntimeLabel: "Python 3.13"},
+			{Name: "TTS", Port: 5030, HealthPath: "/api/health", SetupScript: "script/tts-setup.bat", StartScript: "script/tts-start.bat", StartOrder: 2, SetupSentinel: "services/tts/.setup_done", RuntimeLabel: "Python 3.13"},
+			{Name: "ASR", Port: 5032, HealthPath: "/api/health", SetupScript: "script/asr-setup.bat", StartScript: "script/asr-start.bat", StartOrder: 3, SetupSentinel: "services/asr/.setup_done", RuntimeLabel: "Python 3.12"},
+			{Name: "Image", Port: 8742, HealthPath: "/health", SetupScript: "script/image-setup.bat", StartScript: "script/image-start.bat", StartOrder: 4, SetupSentinel: "services/image/.setup_done", RuntimeLabel: "Python 3.13"},
+			{Name: "Browser", Port: 8743, HealthPath: "/health", SetupScript: "script/browser-setup.bat", StartScript: "script/browser-start.bat", StartOrder: 5, SetupSentinel: "services/browser/.setup_done", RuntimeLabel: "Python 3.13"},
+			{Name: "Backend", Port: 3682, HealthPath: "/api/health", SetupScript: "script/backend-setup.bat", StartScript: "script/backend-start.bat", StartOrder: 6, SetupSentinel: "dist/.setup_done", RuntimeLabel: "Node.js"},
+			{Name: "WebUI", Port: 5173, HealthPath: "/", SetupScript: "script/webui-setup.bat", StartScript: "script/webui-start.bat", StartOrder: 7, SetupSentinel: "webui/.setup_done", RuntimeLabel: "Node.js"},
 			{Name: "Live2D", Port: 0, SetupScript: "script/live2d-setup.bat", StartScript: "script/live2d-start.bat", StartOrder: 8, SetupSentinel: "live2d-widget/.setup_done", RuntimeLabel: "Python 3.13"},
 		},
 	}
@@ -85,7 +86,7 @@ func (m *Manager) RefreshAll() {
 			continue
 		}
 		if state.PID != 0 && ProcessExists(state.PID) {
-			if def.Port > 0 && m.checkHealth(def.Port) {
+			if def.Port > 0 && m.checkHealth(def.Port, def.HealthPath) {
 				state.Status = StatusRunning
 			} else if def.Port == 0 {
 				state.Status = StatusRunning
@@ -175,7 +176,7 @@ func (m *Manager) Start(name string) error {
 
 	if def.Port > 0 {
 		LogService(name, "waiting for health check on port %d", def.Port)
-		if m.pollHealth(def.Port, 60*time.Second, 2*time.Second) {
+		if m.pollHealth(def.Port, def.HealthPath, 60*time.Second, 2*time.Second) {
 			m.setStatus(name, StatusRunning)
 			LogService(name, "healthy on port %d", def.Port)
 		} else {
@@ -277,7 +278,7 @@ func (m *Manager) CheckHealthAll() map[string]bool {
 	result := make(map[string]bool)
 	for _, def := range m.svcDefs {
 		if def.Port > 0 {
-			result[def.Name] = m.checkHealth(def.Port)
+			result[def.Name] = m.checkHealth(def.Port, def.HealthPath)
 		} else {
 			state := m.GetState(def.Name)
 			result[def.Name] = state != nil && state.Status == StatusRunning && state.PID > 0 && ProcessExists(state.PID)
@@ -313,8 +314,8 @@ func (m *Manager) setPID(name string, pid int) {
 	m.mu.Unlock()
 }
 
-func (m *Manager) checkHealth(port int) bool {
-	url := fmt.Sprintf("http://127.0.0.1:%d/health", port)
+func (m *Manager) checkHealth(port int, healthPath string) bool {
+	url := fmt.Sprintf("http://127.0.0.1:%d%s", port, healthPath)
 	client := http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
@@ -324,10 +325,10 @@ func (m *Manager) checkHealth(port int) bool {
 	return resp.StatusCode == 200
 }
 
-func (m *Manager) pollHealth(port int, timeout, interval time.Duration) bool {
+func (m *Manager) pollHealth(port int, healthPath string, timeout, interval time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if m.checkHealth(port) {
+		if m.checkHealth(port, healthPath) {
 			return true
 		}
 		time.Sleep(interval)

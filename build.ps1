@@ -186,13 +186,11 @@ if ((Test-Path $bundledNode) -and (Test-Path $bundledNpm)) {
             } else {
                 Write-Warning "  better-sqlite3.node not found after install"
             }
-            # npm install side-effects cleanup: node_modules/ is dead weight
-            # - better-sqlite3 JS is already bundled into dist/index.js by esbuild
-            # - bindings resolves .node from ./build/Release/ (relative to package.json root)
-            # - package-lock.json is also npm artifact, not needed at runtime
+            # node_modules is dead weight — esbuild already bundled all JS into dist/index.js
+            # Native .node binaries are preserved at build/Release/
             Remove-Item -Recurse -Force (Join-Path $pkgDir "node_modules") -ErrorAction SilentlyContinue
             Remove-Item -Force (Join-Path $pkgDir "package-lock.json") -ErrorAction SilentlyContinue
-            Write-Host "    Cleaned npm artifacts (node_modules + package-lock.json)" -ForegroundColor Green
+            Write-Host "    Cleaned npm artifacts" -ForegroundColor Green
         }
     } finally {
         Pop-Location
@@ -200,6 +198,10 @@ if ((Test-Path $bundledNode) -and (Test-Path $bundledNpm)) {
 } else {
     Write-Warning "  Bundled Node/npm not found, skipping better-sqlite3 setup"
 }
+
+# 3.5b: Mark Backend as pre-installed (esbuild bundle + native .node already done)
+Write-Host "  Creating dist/.setup_done (Backend pre-installed)..."
+"pre-installed" | Out-File -FilePath (Join-Path $pkgDir "dist\.setup_done") -Encoding utf8
 
 # 3.6: Copy webui/dist/ + serve.cjs
 Write-Host "  Copying webui/..."
@@ -211,29 +213,35 @@ if (Test-Path $webuiSrc) {
     if (Test-Path (Join-Path $webuiSrc "serve.cjs")) {
         Copy-Item (Join-Path $webuiSrc "serve.cjs") $webuiDst
     }
+    # Mark WebUI as pre-installed (serve.cjs has zero external deps)
+    "pre-installed" | Out-File -FilePath (Join-Path $webuiDst ".setup_done") -Encoding utf8
+    Write-Host "    WebUI pre-installed" -ForegroundColor Green
 }
 
 # 3.7: Copy services/
 Write-Host "  Copying services/..."
 $svcSrc = Join-Path $projectRoot "services"
 $svcDst = Join-Path $pkgDir "services"
-robocopy $svcSrc $svcDst /E /NFL /NDL /NJH /NJS /XD venv __pycache__ pretrained_models models .lock output packages
+robocopy $svcSrc $svcDst /E /NFL /NDL /NJH /NJS /XD venv __pycache__ pretrained_models .lock output packages
+# Remove large downloaded ASR models (not Python source code — gpt_sovits/AR/models/ is 121KB of source)
+$asrModels = Join-Path $svcDst "asr\models"
+if (Test-Path $asrModels) { Remove-Item -Recurse -Force $asrModels }
 
-# 3.8: Copy TTS checkpoint files
-Write-Host "  Copying TTS checkpoints..."
+# 3.8: Copy TTS checkpoint files and HuggingFace models
+Write-Host "  Copying TTS models..."
+$ttsPretrained = Join-Path $projectRoot "services\tts\pretrained_models"
+$ttsPretrainedDst = Join-Path $pkgDir "services\tts\pretrained_models"
+New-Item -ItemType Directory -Force -Path $ttsPretrainedDst | Out-Null
 $ttsCheckpoints = @(
-    "services\tts\pretrained_models\s2D488k.pth",
-    "services\tts\pretrained_models\s2G488k.pth",
-    "services\tts\pretrained_models\s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt"
+    "s2D488k.pth",
+    "s2G488k.pth",
+    "s1bert25hz-2kh-longer-epoch=68e-step=50232.ckpt"
 )
 foreach ($cp in $ttsCheckpoints) {
-    $cpSrc = Join-Path $projectRoot $cp
-    if (Test-Path $cpSrc) {
-        $cpDst = Join-Path $pkgDir $cp
-        $cpParent = Split-Path $cpDst -Parent
-        New-Item -ItemType Directory -Force -Path $cpParent | Out-Null
-        Copy-Item $cpSrc $cpDst -Force
-        Write-Host "    $(Split-Path $cp -Leaf)"
+    $cpFull = Join-Path $ttsPretrained $cp
+    if (Test-Path $cpFull) {
+        Copy-Item $cpFull $ttsPretrainedDst -Force
+        Write-Host "    $cp"
     }
 }
 

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"satori-launcher/api"
 	"satori-launcher/svc"
@@ -59,6 +60,14 @@ func main() {
 
 	// service manager
 	mgr := svc.NewManager(rootDir)
+
+	// Background state refresh — detect process exits without waiting for frontend polling
+	go func() {
+		for {
+			time.Sleep(2 * time.Second)
+			mgr.RefreshAll()
+		}
+	}()
 
 	// HTTP server
 	srv := api.NewServer(mgr, rootDir)
