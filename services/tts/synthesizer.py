@@ -37,7 +37,7 @@ from transformers import AutoModelForMaskedLM, AutoTokenizer
 # Force old weight_norm API for HuBERT checkpoint compatibility.
 # TencentGameMate/chinese-hubert-base uses old format (weight_g/weight_v).
 # PyTorch 2.2+ parametrizations API creates different keys, causing weight mismatch.
-# transformers 4.36.0 modeling_hubert.py:275-276 auto-selects new API if available.
+# transformers modeling_hubert.py auto-selects new API if available.
 # Hide it so transformers falls back to nn.utils.weight_norm (old format).
 import torch.nn as nn
 _saved_param_wn = getattr(nn.utils.parametrizations, "weight_norm", None)

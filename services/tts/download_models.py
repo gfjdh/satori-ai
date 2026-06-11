@@ -14,6 +14,9 @@ if not os.environ.get("HF_ENDPOINT"):
     os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 # Ensure progress bars are enabled
 os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "0"
+# Suppress symlink warning on Windows (expected: no Developer Mode)
+# Caching works in degraded copy mode — functionality is unaffected
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 
 # Add vendored packages to path (populated by pip install --target)
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -25,7 +28,7 @@ if os.path.isdir(packages_dir):
 # TencentGameMate/chinese-hubert-base was saved with old format (weight_g/weight_v).
 # PyTorch 2.2+ parametrizations.weight_norm creates params with different keys
 # (parametrizations.weight.original0/original1), causing weight mismatch on load.
-# transformers 4.36.0 modeling_hubert.py auto-selects new API if available.
+# transformers modeling_hubert.py auto-selects new API if available.
 # We hide it so transformers falls back to nn.utils.weight_norm (old format).
 import torch.nn as nn
 _saved_param_wn = getattr(nn.utils.parametrizations, "weight_norm", None)

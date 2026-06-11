@@ -33,7 +33,7 @@ tts-service/
 **依赖包**：
 - `flask` - Web 框架
 - `torch` - PyTorch 推理引擎
-- `transformers==4.36.0` - BERT/HuBERT 模型（必须用 4.36.0 避免 half precision 问题）
+- `transformers>=4.45.0` - BERT/HuBERT 模型（4.36.0 依赖的 tokenizers<0.19 已从 PyPI 下架，升级到 >=4.45.0 解决）
 - `librosa` - 音频处理
 - `soundfile` - 音频文件读写
 - `scipy` - 科学计算
@@ -141,15 +141,15 @@ character-cards/satori/TTS/example/normal.wav
 
 ### 1. transformers 版本兼容性
 
-**问题**：transformers 5.x 会在 HuBERT 模型中加载 half precision 权重，导致运行时类型不匹配。
+**问题**：`transformers==4.36.0` 依赖 `tokenizers>=0.14,<0.19`，但这些版本已被 PyPI 下架（仅剩 0.20.2+），导致 pip install 永久失败。
 
-**解决**：固定使用 `transformers==4.36.0`
+**解决**：升级到 `transformers>=4.45.0`，接受 `tokenizers>=0.21`。TTS 代码使用的 API（`AutoModelForMaskedLM`, `AutoTokenizer`, `HubertModel`, `Wav2Vec2FeatureExtractor`）在所有 transformers 4.x 版本中保持稳定。
 
 ### 2. Python 版本
 
 **问题**：整合包使用 Python 3.9，本地环境使用 Python 3.13。
 
-**解决**：本地 venv 使用 Python 3.13，通过降级 transformers 解决兼容性问题。
+**解决**：本地 venv 使用 Python 3.13，通过升级 transformers 到 >=4.45.0 并配合 weight_norm 兼容性 hack 解决。
 
 ### 3. HParams 类
 
