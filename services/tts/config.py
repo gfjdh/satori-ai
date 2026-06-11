@@ -13,10 +13,10 @@ class Config:
     # 从 services/tts/config.py 往上三层到达项目根目录
     PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-    # 预训练模型路径（写死）
-    PRETRAINED_MODELS_DIR = os.path.join(BASE_DIR, "pretrained_models")
-    BERT_PATH = os.path.join(PRETRAINED_MODELS_DIR, "chinese-roberta-wwm-ext-large")
-    HUBERT_PATH = os.path.join(PRETRAINED_MODELS_DIR, "chinese-hubert-base")
+    # 预训练模型：使用 HuggingFace model ID，首次使用时自动下载到 HF 缓存
+    # 不在分发包中打包（BERT ~622MB + HuBERT ~181MB），改为安装时下载
+    BERT_PATH = "hfl/chinese-roberta-wwm-ext-large"
+    HUBERT_PATH = "TencentGameMate/chinese-hubert-base"
 
     # 动态获取的模型路径（缓存）
     _gpt_model_path = None

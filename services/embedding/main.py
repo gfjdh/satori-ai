@@ -3,6 +3,17 @@ Embedding Service
 使用 bert-base-chinese 模型提供文本向量化和检索API
 """
 
+import os
+import logging
+
+# Suppress uvicorn access logs (health check polling noise)
+logging.getLogger('uvicorn.access').setLevel(logging.WARNING)
+
+# Use HF mirror for faster download in China (https://hf-mirror.com)
+# User can override: set HF_ENDPOINT env var in .env or system environment
+if not os.environ.get("HF_ENDPOINT"):
+    os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List

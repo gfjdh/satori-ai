@@ -11,7 +11,7 @@ CPU_THREADS = max(1, CPU_COUNT // 2)
 import torch
 torch.set_num_threads(CPU_THREADS)
 torch.set_num_interop_threads(CPU_THREADS)
-print(f"[GPTSovitsSynthesizer] CPU threads: intra={CPU_THREADS}, inter={CPU_THREADS}")
+print(f"[GPTSovitsSynthesizer] CPU threads: intra={CPU_THREADS}, inter={CPU_THREADS}", flush=True)
 
 # 添加本项目的模块路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -33,6 +33,16 @@ import numpy as np
 import librosa
 import soundfile as sf
 from transformers import AutoModelForMaskedLM, AutoTokenizer
+
+# Force old weight_norm API for HuBERT checkpoint compatibility.
+# TencentGameMate/chinese-hubert-base uses old format (weight_g/weight_v).
+# PyTorch 2.2+ parametrizations API creates different keys, causing weight mismatch.
+# transformers 4.36.0 modeling_hubert.py:275-276 auto-selects new API if available.
+# Hide it so transformers falls back to nn.utils.weight_norm (old format).
+import torch.nn as nn
+_saved_param_wn = getattr(nn.utils.parametrizations, "weight_norm", None)
+if _saved_param_wn is not None:
+    del nn.utils.parametrizations.weight_norm
 
 from gpt_sovits.feature_extractor.cnhubert import CNHubert, get_model as cnhubert_get_model
 from gpt_sovits.module.models import SynthesizerTrn
@@ -68,20 +78,20 @@ class GPTSovitsSynthesizer:
         self.is_half = False
 
         # 初始化 BERT
-        print(f"Loading BERT from {bert_path}...")
+        print(f"[Synthesizer] Loading BERT from {bert_path}...", flush=True)
         self.tokenizer = AutoTokenizer.from_pretrained(bert_path)
         self.bert_model = AutoModelForMaskedLM.from_pretrained(bert_path)
         self.bert_model = self.bert_model.to(device)
 
         # 初始化 HuBERT
-        print(f"Loading HuBERT from {hubert_path}...")
+        print(f"[Synthesizer] Loading HuBERT from {hubert_path}...", flush=True)
         import feature_extractor.cnhubert as cnhubert_module
         cnhubert_module.cnhubert_base_path = hubert_path
         self.ssl_model = cnhubert_module.get_model()
         self.ssl_model = self.ssl_model.to(device)
 
         # 加载 SoVITS
-        print(f"Loading SoVITS from {sovits_path}...")
+        print(f"[Synthesizer] Loading SoVITS from {sovits_path}...", flush=True)
         dict_s2 = torch.load(sovits_path, map_location="cpu", weights_only=False)
         hps = dict_s2["config"]
         self.hps = DictToAttrRecursive(hps)
@@ -100,7 +110,7 @@ class GPTSovitsSynthesizer:
         self.vq_model.load_state_dict(dict_s2["weight"], strict=False)
 
         # 加载 GPT
-        print(f"Loading GPT from {gpt_path}...")
+        print(f"[Synthesizer] Loading GPT from {gpt_path}...", flush=True)
         dict_s1 = torch.load(gpt_path, map_location="cpu", weights_only=False)
         config = dict_s1["config"]
         self.hz = 50
@@ -111,7 +121,7 @@ class GPTSovitsSynthesizer:
         self.t2s_model = self.t2s_model.to(device)
         self.t2s_model.eval()
 
-        print("All models loaded successfully!")
+        print("[Synthesizer] All models loaded successfully!", flush=True)
 
     def get_bert_feature(self, text: str, word2ph: list) -> torch.Tensor:
         with torch.no_grad():
@@ -168,7 +178,7 @@ class GPTSovitsSynthesizer:
     ) -> tuple:
         # 确保推理时线程配置正确（intra-op 可重复设置，interop 只在模块加载时设置一次）
         torch.set_num_threads(CPU_THREADS)
-        print(f"Synthesizing: {text}")
+        print(f"[Synthesizer] Synthesizing: {text}", flush=True)
 
         # 1. 加载参考音频并提取 SSL 特征
         wav16k, sr = librosa.load(ref_wav_path, sr=16000)
@@ -198,7 +208,7 @@ class GPTSovitsSynthesizer:
         all_phoneme_len = torch.tensor([all_phoneme_ids.shape[-1]]).to(self.device)
         prompt = prompt_semantic.unsqueeze(0).to(self.device)
 
-        print("Running GPT inference...")
+        print("[Synthesizer] Running GPT inference...", flush=True)
         with torch.no_grad():
             pred_semantic, idx = self.t2s_model.model.infer_panel(
                 all_phoneme_ids,
@@ -225,7 +235,7 @@ class GPTSovitsSynthesizer:
             audio = audio / max_audio
 
         duration = len(audio) / self.hps.data.sampling_rate
-        print(f"Generated audio: {duration:.2f}s")
+        print(f"[Synthesizer] Generated audio: {duration:.2f}s", flush=True)
 
         return audio, self.hps.data.sampling_rate, duration
 
@@ -262,4 +272,4 @@ if __name__ == "__main__":
     output_path = os.path.join(current_dir, "output", "standalone_test.wav")
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     sf.write(output_path, audio, sr)
-    print(f"Saved to {output_path}")
+    print(f"[Synthesizer] Saved to {output_path}", flush=True)

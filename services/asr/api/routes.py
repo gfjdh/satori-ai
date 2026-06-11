@@ -48,9 +48,11 @@ def _download_model():
     os.makedirs(target, exist_ok=True)
 
     # 1. Download ONNX model + am.mvn from HuggingFace
-    missing_hf = [f for f in ["sense-voice-encoder.onnx", "am.mvn"]
-                  if not os.path.exists(os.path.join(target, f))]
-    if missing_hf:
+    # model.onnx may exist from download_models.py renaming sense-voice-encoder.onnx
+    has_encoder = os.path.exists(os.path.join(target, "sense-voice-encoder.onnx"))
+    has_model_onnx = os.path.exists(os.path.join(target, "model.onnx"))
+    has_mvn = os.path.exists(os.path.join(target, "am.mvn"))
+    if not ((has_encoder or has_model_onnx) and has_mvn):
         logger.info("Downloading ONNX files from HuggingFace: %s", _HF_REPO)
         snapshot_download(
             _HF_REPO,

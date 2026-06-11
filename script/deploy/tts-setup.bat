@@ -10,4 +10,11 @@ if %ERRORLEVEL% NEQ 0 (
 echo OK > "%HERE%\.setup_done"
 echo TTS setup complete.
 echo.
-echo Note: BERT/HuBERT models will be downloaded on first TTS service start via HuggingFace.
+echo Downloading BERT/HuBERT models from HuggingFace...
+"..\runtime\python-3.13\python.exe" "%HERE%\download_models.py"
+if %ERRORLEVEL% NEQ 0 (
+    echo ERROR: Model download failed for TTS
+    del "%HERE%\.setup_done" 2>nul
+    exit /b 1
+)
+echo TTS models ready.

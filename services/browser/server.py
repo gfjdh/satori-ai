@@ -23,12 +23,16 @@ import sys
 import os
 import re
 import base64
+import logging
 import urllib.parse
 import threading
 import queue
 import traceback
 from pathlib import Path
 from flask import Flask, request, jsonify
+
+# Suppress werkzeug access logs (health check polling noise)
+logging.getLogger('werkzeug').setLevel(logging.WARNING)
 
 # ── Load .env ─────────────────────────────────────────────────────
 from dotenv import load_dotenv

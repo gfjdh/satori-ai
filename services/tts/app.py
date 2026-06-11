@@ -5,6 +5,12 @@ import logging
 import sys
 import os
 import threading
+
+# Use HF mirror for faster download in China (https://hf-mirror.com)
+# User can override: set HF_ENDPOINT env var in .env or system environment
+if not os.environ.get("HF_ENDPOINT"):
+    os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
 from flask import Flask
 
 from api.routes import api_bp
@@ -14,6 +20,9 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Suppress werkzeug access logs (health check polling noise)
+logging.getLogger('werkzeug').setLevel(logging.WARNING)
 
 
 def warmup():

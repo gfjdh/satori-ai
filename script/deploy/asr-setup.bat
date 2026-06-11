@@ -8,6 +8,13 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 echo OK > "%HERE%\.setup_done"
-echo ASR setup complete.
+echo ASR packages installed.
 echo.
-echo Note: SenseVoice model (~900MB) will be downloaded from ModelScope + HuggingFace on first start.
+echo Downloading SenseVoice model from HuggingFace + ModelScope...
+"..\runtime\python-3.12\python.exe" "%HERE%\download_models.py"
+if %ERRORLEVEL% NEQ 0 (
+    echo ERROR: Model download failed for ASR
+    del "%HERE%\.setup_done" 2>nul
+    exit /b 1
+)
+echo ASR setup complete.

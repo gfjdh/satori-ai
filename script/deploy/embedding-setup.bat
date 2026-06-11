@@ -8,4 +8,13 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 echo OK > "%HERE%\.setup_done"
+echo Embedding packages installed.
+echo.
+echo Downloading bert-base-chinese model from HuggingFace...
+"..\runtime\python-3.13\python.exe" "%HERE%\download_models.py"
+if %ERRORLEVEL% NEQ 0 (
+    echo ERROR: Model download failed for Embedding
+    del "%HERE%\.setup_done" 2>nul
+    exit /b 1
+)
 echo Embedding setup complete.

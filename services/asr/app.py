@@ -5,6 +5,7 @@ import logging
 import sys
 import os
 import threading
+
 from flask import Flask
 
 from api.routes import api_bp
@@ -14,6 +15,9 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Suppress werkzeug access logs (health check polling noise)
+logging.getLogger('werkzeug').setLevel(logging.WARNING)
 
 
 def warmup():

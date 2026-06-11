@@ -2,6 +2,11 @@
 Image Analysis Service
 Provides VLLM-based image analysis (fast/detailed modes).
 """
+import logging
+
+# Suppress uvicorn access logs (health check polling noise)
+logging.getLogger('uvicorn.access').setLevel(logging.WARNING)
+
 # ── Load .env ─────────────────────────────────────────────────────
 from dotenv import load_dotenv
 from pathlib import Path
