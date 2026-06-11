@@ -2,7 +2,7 @@
 cd /d "%~dp0"
 set "HERE=%~dp0..\services\asr"
 echo Setting up ASR...
-"..\runtime\python-3.12\pythonw.exe" -m pip install -r "%HERE%\requirements.txt" --target "%HERE%\packages" --find-links "..\wheels"
+"..\runtime\python-3.12\pythonw.exe" -m pip install -r "%HERE%\requirements.txt" --target "%HERE%\packages" --find-links "..\wheels" -i https://pypi.tuna.tsinghua.edu.cn/simple
 if %ERRORLEVEL% NEQ 0 (
     echo ERROR: pip install failed for ASR
     exit /b 1

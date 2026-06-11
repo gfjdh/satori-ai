@@ -281,48 +281,72 @@ foreach ($pyVer in @("3.13", "3.12")) {
     $pyExe = Join-Path $pkgDir "runtime\python-$pyVer\python.exe"
     if (Test-Path $pyExe) {
         Write-Host "  Installing setuptools+wheel into Python $pyVer..."
-        & $pyExe -m pip install --no-cache-dir setuptools wheel 2>&1 | Out-Null
+        & $pyExe -m pip install --no-cache-dir setuptools wheel -i https://pypi.tuna.tsinghua.edu.cn/simple 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) {
             Write-Warning "  setuptools install failed for Python $pyVer"
         }
     }
 }
 
-# 3.13: Build C extension wheels
+# 3.13: Build C extension wheels (skip if already built)
 Write-Host "  Building C extension wheels..."
 $wheelsDst = Join-Path $pkgDir "wheels"
 New-Item -ItemType Directory -Force -Path $wheelsDst | Out-Null
 
+# Helper: test if a wheel matching the given pattern already exists
+function Test-WheelExists($pattern) {
+    $existing = Get-ChildItem $wheelsDst -Filter $pattern -ErrorAction SilentlyContinue
+    return ($null -ne $existing -and $existing.Count -gt 0)
+}
+
+$pipMirror = "https://pypi.tuna.tsinghua.edu.cn/simple"
+
+# cp313: pyopenjtalk + jieba-fast
 $py313 = Join-Path $pkgDir "runtime\python-3.13\python.exe"
 if (Test-Path $py313) {
-    Write-Host "    pyopenjtalk + jieba-fast (cp313)..."
-    & $py313 -m pip wheel pyopenjtalk==0.4.1 jieba-fast==0.53 -w $wheelsDst --no-deps
+    $needPyopenjtalk = -not (Test-WheelExists "pyopenjtalk-0.4.1-*.whl")
+    $needJiebaFast313 = -not (Test-WheelExists "jieba_fast-0.53-cp313-*.whl")
+
+    if ($needPyopenjtalk -or $needJiebaFast313) {
+        $pkgs = @()
+        if ($needPyopenjtalk) { $pkgs += "pyopenjtalk==0.4.1" }
+        if ($needJiebaFast313) { $pkgs += "jieba-fast==0.53" }
+        Write-Host "    cp313: $($pkgs -join ', ')..."
+        & $py313 -m pip wheel $pkgs -w $wheelsDst --no-deps -i $pipMirror
+        if ($LASTEXITCODE -ne 0) { throw "pip wheel failed for cp313: $($pkgs -join ', ')" }
+    } else {
+        Write-Host "    cp313: wheels already exist, skipped" -ForegroundColor Green
+    }
 } else {
     Write-Warning "  Python 3.13 runtime not found, skipping cp313 wheel build"
 }
 
+# cp312: jieba-fast + jieba
 $py312 = Join-Path $pkgDir "runtime\python-3.12\python.exe"
 if (Test-Path $py312) {
-    Write-Host "    jieba-fast (cp312)..."
-    & $py312 -m pip wheel jieba-fast==0.53 -w $wheelsDst --no-deps
-    Write-Host "    jieba (cp312)..."
-    & $py312 -m pip wheel jieba==0.42.1 -w $wheelsDst --no-deps
+    $needJiebaFast312 = -not (Test-WheelExists "jieba_fast-0.53-cp312-*.whl")
+    $needJieba = -not (Test-WheelExists "jieba-0.42.1-*.whl")
+
+    if ($needJiebaFast312) {
+        Write-Host "    cp312: jieba-fast==0.53..."
+        & $py312 -m pip wheel jieba-fast==0.53 -w $wheelsDst --no-deps -i $pipMirror
+        if ($LASTEXITCODE -ne 0) { throw "pip wheel failed for cp312: jieba-fast" }
+    }
+    if ($needJieba) {
+        Write-Host "    cp312: jieba==0.42.1..."
+        & $py312 -m pip wheel jieba==0.42.1 -w $wheelsDst --no-deps -i $pipMirror
+        if ($LASTEXITCODE -ne 0) { throw "pip wheel failed for cp312: jieba" }
+    }
+    if (-not $needJiebaFast312 -and -not $needJieba) {
+        Write-Host "    cp312: wheels already exist, skipped" -ForegroundColor Green
+    }
 } else {
     Write-Warning "  Python 3.12 runtime not found, skipping cp312 wheel build"
 }
 
-# 3.14: Package Playwright Chromium
-Write-Host "  Checking Playwright browsers..."
-$pwDst = Join-Path $pkgDir "playwright-browsers"
-if (-not (Test-Path $pwDst)) {
-    $msPlaywright = Join-Path $env:USERPROFILE "AppData\Local\ms-playwright"
-    if (Test-Path $msPlaywright) {
-        Write-Host "    Copying from $msPlaywright..."
-        robocopy $msPlaywright $pwDst /E /NFL /NDL /NJH /NJS
-    } else {
-        Write-Warning "  ms-playwright not found. Run 'playwright install chromium' first."
-    }
-}
+# 3.14: Playwright browsers are downloaded on first setup (browser-setup.bat)
+# No longer bundled in the distribution package (~685MB savings)
+Write-Host "  Playwright browsers: will be downloaded on first setup" -ForegroundColor Green
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
